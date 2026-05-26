@@ -51,15 +51,23 @@ def _load_logo() -> Image.Image:
 
 
 def _paste_logo(base: Image.Image) -> None:
-    """Paste the small police logo into the top-left corner, in place."""
+    """Centre the police logo inside the reserved top-left box, in place."""
     logo = _load_logo()
 
-    target_w = int(base.width * config.LOGO_WIDTH_RATIO)
-    target_h = int(logo.height * target_w / logo.width)
-    logo = logo.resize((target_w, target_h), Image.LANCZOS)
-
     margin = int(base.width * config.LOGO_MARGIN_RATIO)
-    base.paste(logo, (margin, margin), logo)
+    box_w = int(base.width * config.LOGO_BOX_WIDTH_RATIO)
+    box_h = int(base.height * config.LOGO_BOX_HEIGHT_RATIO)
+
+    # Scale the logo to fit inside the box (minus padding), keeping aspect.
+    avail_w, avail_h = box_w - 2 * margin, box_h - 2 * margin
+    scale = min(avail_w / logo.width, avail_h / logo.height)
+    lw, lh = max(1, int(logo.width * scale)), max(1, int(logo.height * scale))
+    logo = logo.resize((lw, lh), Image.LANCZOS)
+
+    # Centre it within the box (whose origin is the image's top-left corner).
+    x = (box_w - lw) // 2
+    y = (box_h - lh) // 2
+    base.paste(logo, (x, y), logo)
 
 
 # --------------------------------------------------------------------------- #
@@ -95,15 +103,16 @@ def _centered_glyph(d, ch, x, y, s, font, color) -> None:
     d.text((x + (s - gw) / 2 - bbox[0], y + (s - gh) / 2 - bbox[1]), ch, font=font, fill=color)
 
 
-def _add_footer(base: Image.Image) -> None:
-    """Draw the branded footer band across the bottom, in place."""
-    W = base.width
-    band_h = int(base.height * config.FOOTER_HEIGHT_RATIO)
-    top = base.height - band_h
-    d = ImageDraw.Draw(base)
+def _append_footer(base: Image.Image) -> Image.Image:
+    """Return a taller canvas: the image on top, the footer band appended below."""
+    W, H = base.size
+    band_h = int(H * config.FOOTER_HEIGHT_RATIO)
 
-    # Band + accent line.
-    d.rectangle([0, top, W, base.height], fill=config.FOOTER_BG)
+    canvas = Image.new("RGBA", (W, H + band_h), config.FOOTER_BG + (255,))
+    canvas.paste(base, (0, 0))
+    d = ImageDraw.Draw(canvas)
+
+    top = H  # footer begins exactly where the original image ends
     line_h = max(2, band_h // 20)
     d.rectangle([0, top, W, top + line_h], fill=config.FOOTER_TOP_LINE)
 
@@ -132,13 +141,15 @@ def _add_footer(base: Image.Image) -> None:
     d.text((W - pad - cw - cb[0], cy - (cb[3] - cb[1]) / 2 - cb[1]),
            config.CONTROL_ROOM_TEXT, font=cr_font, fill=color)
 
+    return canvas
+
 
 # --------------------------------------------------------------------------- #
 # Public entry point
 # --------------------------------------------------------------------------- #
 def add_branding(image_bytes: bytes) -> Image.Image:
-    """Return a new image with the logo header and footer band applied."""
+    """Overlay the logo on the image and append the footer band below it."""
     base = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
     _paste_logo(base)
-    _add_footer(base)
-    return base.convert("RGB")
+    branded = _append_footer(base)
+    return branded.convert("RGB")

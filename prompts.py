@@ -19,14 +19,13 @@ GROUNDING RULE (most important)
 - The poster's subject, vocabulary, icons, and illustrations must reflect the user's actual topic — do not anchor to any default domain (drugs, traffic, crime, etc.) unless the user's request is about that domain.
 
 ═══════════════════════════════════
-RESERVED OVERLAY SAFE ZONES (critical — branding is composited on afterwards)
+RESERVED LOGO SAFE ZONE (critical — a logo is overlaid afterwards)
 ═══════════════════════════════════
-A logo and a contact footer are pasted onto the finished image by a separate program. The image you describe MUST keep these two regions clear, or that branding will cover and cut off your content.
+A logo is pasted onto the TOP-LEFT corner of the finished image by a separate program. The image you describe MUST keep that corner clear, or the logo will overlap your content.
 
-- BOTTOM FOOTER STRIP: The bottom 10% of the canvas MUST be a completely BLANK, EMPTY horizontal band — a flat solid strip in the off-white background colour with ABSOLUTELY NO text, numbers, icons, illustration, ribbon, or border entering it. All poster content must end above this strip. Treat it as a reserved empty footer onto which a contact bar will later be pasted. Never let a headline, stat card, illustration, or any element bleed into the bottom 10%.
-- TOP-LEFT LOGO SPACE: Keep a small empty square in the TOP-LEFT corner — roughly the top-left 16% of the width and 14% of the height — clear of text and any key illustration, so a logo can be overlaid without overlapping. Shift the headline or top content slightly to the right or down so nothing important sits in that corner.
+- TOP-LEFT LOGO SPACE: Keep a small empty area in the TOP-LEFT corner — roughly the top-left 16% of the width and 13% of the height — clear of text and any key illustration, so a logo can be overlaid without overlapping. Shift the headline or top content slightly to the right or down so nothing important sits in that corner. This safe zone is mandatory; state it explicitly in the prompt you output.
 
-These two safe zones are mandatory and take priority over filling space. State them explicitly in the prompt you output.
+- BOTTOM: A contact footer bar is appended BELOW the image as a separate strip, so you do NOT need to reserve any blank space at the bottom. Use the full canvas height down to the bottom edge for poster content as normal.
 
 ═══════════════════════════════════
 HARD REQUIREMENTS
@@ -48,9 +47,9 @@ HARD REQUIREMENTS
 
    (e) GEOGRAPHIC ROUTE BOX [include ONLY if user names specific locations connected by movement or jurisdiction] — small stylised map with arrows between the named places, plus tiny icons for any transport modes or contexts the user actually mentioned.
 
-   (f) BREAKDOWN CARDS [include whenever the user's data naturally splits into 2+ categories — this is the signature zone, prefer to include it] — 3 or 4 small panels in a row near the bottom of the poster (but ABOVE the reserved footer strip). Each panel contains: a category name on a maroon ribbon at top, a row of small icons matching the items the user listed for that category, quantity + value labels below each icon, and an optional total bar. Categories can be districts, regions, types, time periods, departments, age groups, vehicle categories — whatever the user's data naturally divides along.
+   (f) BREAKDOWN CARDS [include whenever the user's data naturally splits into 2+ categories — this is the signature zone, prefer to include it] — 3 or 4 small panels in a row near the bottom of the poster. Each panel contains: a category name on a maroon ribbon at top, a row of small icons matching the items the user listed for that category, quantity + value labels below each icon, and an optional total bar. Categories can be districts, regions, types, time periods, departments, age groups, vehicle categories — whatever the user's data naturally divides along.
 
-   (g) BOTTOM SUMMARY BAR [include ONLY if user provided a meaningful grand total] — a single horizontal band showing the total, placed ABOVE the reserved footer strip. The figure may optionally be written in Hindi words for emphasis if it is large.
+   (g) BOTTOM SUMMARY BAR [include ONLY if user provided a meaningful grand total] — a single horizontal band showing the total at the bottom of the poster. The figure may optionally be written in Hindi words for emphasis if it is large.
 
 3. TYPOGRAPHY
    - Headline: massive bold Devanagari, navy with crimson emphasis words.
@@ -83,7 +82,7 @@ HARD REQUIREMENTS
 ═══════════════════════════════════
 OUTPUT FORMAT
 ═══════════════════════════════════
-Return ONLY the final image-generation prompt as one dense block. Inside it, write EVERY Hindi text string the model must render in straight quotes. Every Hindi string must be derived from the user's request — do not insert example, placeholder, or filler text. Describe each included zone explicitly: position, contents, colours, icons, exact Hindi strings. Explicitly state that the bottom 10% is a blank empty off-white footer strip with no content, and that the top-left corner is kept clear for a logo. If a content zone is being omitted due to lack of user data, do not mention it at all. No preamble, no commentary, no markdown — just the prompt text the image model will receive.
+Return ONLY the final image-generation prompt as one dense block. Inside it, write EVERY Hindi text string the model must render in straight quotes. Every Hindi string must be derived from the user's request — do not insert example, placeholder, or filler text. Describe each included zone explicitly: position, contents, colours, icons, exact Hindi strings. Explicitly state that the top-left corner is kept clear for a logo overlay. If a content zone is being omitted due to lack of user data, do not mention it at all. No preamble, no commentary, no markdown — just the prompt text the image model will receive.
 
 USER REQUEST:
 "{User Query}"
