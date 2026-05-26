@@ -50,23 +50,36 @@ def _load_logo() -> Image.Image:
     return logo
 
 
+def _dominant_color(region: Image.Image):
+    """Most frequent RGB colour in a region (its background, by area)."""
+    colors = region.convert("RGB").getcolors(maxcolors=1_000_000)
+    if colors:
+        return max(colors, key=lambda c: c[0])[1]
+    return (244, 244, 239)  # off-white fallback (poster palette background)
+
+
 def _paste_logo(base: Image.Image) -> None:
-    """Centre the police logo inside the reserved top-left box, in place."""
+    """Erase the corner placeholder box, then paste the logo on it, in place.
+
+    The image model stamps a wide "LOGO" placeholder box in the top-left corner.
+    We repaint that whole footprint with its own dominant (background) colour —
+    making the box border and text disappear — then drop the logo on the clean
+    area, vertically centred against the wiped band.
+    """
+    wipe_w = int(base.width * config.WIPE_WIDTH_RATIO)
+    wipe_h = int(base.height * config.WIPE_HEIGHT_RATIO)
+
+    bg = _dominant_color(base.crop((0, 0, wipe_w, wipe_h)))
+    ImageDraw.Draw(base).rectangle([0, 0, wipe_w, wipe_h], fill=bg + (255,))
+
     logo = _load_logo()
+    target_w = int(base.width * config.LOGO_WIDTH_RATIO)
+    target_h = int(logo.height * target_w / logo.width)
+    logo = logo.resize((target_w, target_h), Image.LANCZOS)
 
-    margin = int(base.width * config.LOGO_MARGIN_RATIO)
-    box_w = int(base.width * config.LOGO_BOX_WIDTH_RATIO)
-    box_h = int(base.height * config.LOGO_BOX_HEIGHT_RATIO)
-
-    # Scale the logo to fit inside the box (minus padding), keeping aspect.
-    avail_w, avail_h = box_w - 2 * margin, box_h - 2 * margin
-    scale = min(avail_w / logo.width, avail_h / logo.height)
-    lw, lh = max(1, int(logo.width * scale)), max(1, int(logo.height * scale))
-    logo = logo.resize((lw, lh), Image.LANCZOS)
-
-    # Centre it within the box (whose origin is the image's top-left corner).
-    x = (box_w - lw) // 2
-    y = (box_h - lh) // 2
+    # Centre the logo within the wiped designated area (not jammed in the corner).
+    x = (wipe_w - target_w) // 2
+    y = (wipe_h - target_h) // 2
     base.paste(logo, (x, y), logo)
 
 

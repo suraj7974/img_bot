@@ -29,17 +29,20 @@ CONTROL_ROOM_TEXT = "कंट्रोल रूम नं. - 9479229939"
 # ----------------------------------------------------------------------------
 # Layout ratios
 # ----------------------------------------------------------------------------
-# Logo is centred inside a reserved box in the top-left corner.
-LOGO_BOX_WIDTH_RATIO = 0.16    # reserved box width  (fraction of image width)
-LOGO_BOX_HEIGHT_RATIO = 0.13   # reserved box height (fraction of image height)
-LOGO_MARGIN_RATIO = 0.02       # padding inside the box / from the corner
+# Top-left corner handling. The image model stamps a wide "LOGO" placeholder
+# box (border + text) here. We repaint that whole footprint with the surrounding
+# background colour (erasing the box), then paste the logo on the clean area.
+WIPE_WIDTH_RATIO = 0.25        # placeholder-box footprint width  (fraction of width)
+WIPE_HEIGHT_RATIO = 0.177      # placeholder-box footprint height (fraction of height)
+LOGO_WIDTH_RATIO = 0.15        # logo width as a fraction of image width
+LOGO_MARGIN_RATIO = 0.02       # margin from the top-left corner
 
 # Footer band is APPENDED below the image (the canvas is extended downward),
 # so nothing on the original poster is ever covered or cut.
 FOOTER_HEIGHT_RATIO = 0.07     # appended band height as a fraction of image height
 
-# The logo ships with an opaque near-white background. When True we flood-fill
-# that background to transparent so the logo blends onto any poster colour.
+# Flood-fill the logo's near-white background to transparent so it sits cleanly
+# on the wiped area with no visible box edge.
 LOGO_REMOVE_BG = True
 LOGO_BG_THRESH = 45         # colour tolerance for the white-background removal
 

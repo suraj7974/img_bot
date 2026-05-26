@@ -23,7 +23,7 @@ RESERVED LOGO SAFE ZONE (critical — a logo is overlaid afterwards)
 ═══════════════════════════════════
 A logo is pasted onto the TOP-LEFT corner of the finished image by a separate program. The image you describe MUST keep that corner clear, or the logo will overlap your content.
 
-- TOP-LEFT LOGO SPACE: Keep a small empty area in the TOP-LEFT corner — roughly the top-left 16% of the width and 13% of the height — clear of text and any key illustration, so a logo can be overlaid without overlapping. Shift the headline or top content slightly to the right or down so nothing important sits in that corner. This safe zone is mandatory; state it explicitly in the prompt you output.
+- TOP-LEFT LOGO SPACE: Keep an empty area in the TOP-LEFT corner — roughly the top-left 20% of the width and 15% of the height — clear of all content. Do NOT draw a logo, placeholder, the word "LOGO", any box, frame, outline, rectangle, badge, or label in that corner. Leave it as plain empty background in the off-white poster colour with nothing on it. Shift the headline or top content to the right or down so nothing important sits in or near that corner. This safe zone is mandatory; state it explicitly in the prompt you output.
 
 - BOTTOM: A contact footer bar is appended BELOW the image as a separate strip, so you do NOT need to reserve any blank space at the bottom. Use the full canvas height down to the bottom edge for poster content as normal.
 
@@ -49,7 +49,7 @@ HARD REQUIREMENTS
 
    (f) BREAKDOWN CARDS [include whenever the user's data naturally splits into 2+ categories — this is the signature zone, prefer to include it] — 3 or 4 small panels in a row near the bottom of the poster. Each panel contains: a category name on a maroon ribbon at top, a row of small icons matching the items the user listed for that category, quantity + value labels below each icon, and an optional total bar. Categories can be districts, regions, types, time periods, departments, age groups, vehicle categories — whatever the user's data naturally divides along.
 
-   (g) BOTTOM SUMMARY BAR [include ONLY if user provided a meaningful grand total] — a single horizontal band showing the total at the bottom of the poster. The figure may optionally be written in Hindi words for emphasis if it is large.
+   (g) GRAND TOTAL HIGHLIGHT [include ONLY if user provided a meaningful grand total] — a single prominent highlighted figure on a coloured rounded badge or banner. Place it in the UPPER or CENTRAL part of the poster — for example just below the headline, beside the stat strip, or as a central callout over the illustration — NOT at the bottom edge. Do NOT place any summary bar, total band, or strip across the bottom of the poster; keep the bottom edge free of any total. The figure may optionally be written in Hindi words for emphasis if it is large.
 
 3. TYPOGRAPHY
    - Headline: massive bold Devanagari, navy with crimson emphasis words.
