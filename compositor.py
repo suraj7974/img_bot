@@ -1,8 +1,9 @@
-"""Step 3 — overlay the police logo (header) and a branded footer band.
+"""Step 3 — frame the generated poster with a branded header and footer band.
 
-  * Header: the police logo, scaled small, pasted into the top-left corner of
-    the generated poster (its own transparency is used as the paste mask).
-  * Footer: a dark-teal band drawn across the bottom with an olive accent line,
+  * Header: a dark-teal band PREPENDED above the image (canvas extended upward),
+    with the police logo on the far left and far right and the department name
+    centred between them. Nothing on the original poster is covered or cut.
+  * Footer: a dark-teal band APPENDED below the image with an olive accent line,
     social glyphs + handle on the left, and the control-room line on the right.
     Hindi text is shaped with the RAQM layout engine for correct conjuncts.
 """
@@ -50,37 +51,42 @@ def _load_logo() -> Image.Image:
     return logo
 
 
-def _dominant_color(region: Image.Image):
-    """Most frequent RGB colour in a region (its background, by area)."""
-    colors = region.convert("RGB").getcolors(maxcolors=1_000_000)
-    if colors:
-        return max(colors, key=lambda c: c[0])[1]
-    return (244, 244, 239)  # off-white fallback (poster palette background)
+def _prepend_header(base: Image.Image) -> Image.Image:
+    """Return a taller canvas: the header band on top, the image below it.
 
-
-def _paste_logo(base: Image.Image) -> None:
-    """Erase the corner placeholder box, then paste the logo on it, in place.
-
-    The image model stamps a wide "LOGO" placeholder box in the top-left corner.
-    We repaint that whole footprint with its own dominant (background) colour —
-    making the box border and text disappear — then drop the logo on the clean
-    area, vertically centred against the wiped band.
+    The dark-teal band carries the police logo on the far left and far right
+    (same logo, mirrored placement) with the department name centred between.
     """
-    wipe_w = int(base.width * config.WIPE_WIDTH_RATIO)
-    wipe_h = int(base.height * config.WIPE_HEIGHT_RATIO)
+    W, H = base.size
+    band_h = int(H * config.HEADER_HEIGHT_RATIO)
 
-    bg = _dominant_color(base.crop((0, 0, wipe_w, wipe_h)))
-    ImageDraw.Draw(base).rectangle([0, 0, wipe_w, wipe_h], fill=bg + (255,))
+    canvas = Image.new("RGBA", (W, H + band_h), config.HEADER_BG + (255,))
+    canvas.paste(base, (0, band_h))
+    d = ImageDraw.Draw(canvas)
 
+    # Olive accent line along the bottom edge of the header band.
+    line_h = max(2, band_h // 20)
+    d.rectangle([0, band_h - line_h, W, band_h], fill=config.HEADER_ACCENT_LINE)
+
+    # Two logos: far left and far right, vertically centred in the band.
     logo = _load_logo()
-    target_w = int(base.width * config.LOGO_WIDTH_RATIO)
-    target_h = int(logo.height * target_w / logo.width)
+    target_h = int(band_h * config.HEADER_LOGO_HEIGHT_RATIO)
+    target_w = int(logo.width * target_h / logo.height)
     logo = logo.resize((target_w, target_h), Image.LANCZOS)
+    pad = int(W * 0.03)
+    # Lower the logos so they dip over the accent line into the image below.
+    ly = (band_h - target_h) // 2 + int(band_h * 0.22)
+    canvas.paste(logo, (pad, ly), logo)                    # left
+    canvas.paste(logo, (W - pad - target_w, ly), logo)     # right
 
-    # Centre the logo within the wiped designated area (not jammed in the corner).
-    x = (wipe_w - target_w) // 2
-    y = (wipe_h - target_h) // 2
-    base.paste(logo, (x, y), logo)
+    # Department name centred between the logos.
+    name_font = _hindi_font(int(band_h * 0.55))
+    nb = d.textbbox((0, 0), config.DEPARTMENT_NAME, font=name_font)
+    nw = nb[2] - nb[0]
+    d.text(((W - nw) / 2 - nb[0], band_h / 2 - (nb[3] - nb[1]) / 2 - nb[1]),
+           config.DEPARTMENT_NAME, font=name_font, fill=config.HEADER_TEXT)
+
+    return canvas
 
 
 # --------------------------------------------------------------------------- #
@@ -142,13 +148,13 @@ def _append_footer(base: Image.Image) -> Image.Image:
     _draw_facebook(d, x, iy, icon, color);  x += icon + gap
     _draw_x(d, x, iy, icon, color);          x += icon + int(gap * 1.4)
 
-    handle_font = _latin_font(int(band_h * 0.40))
+    handle_font = _latin_font(int(band_h * 0.30))
     hb = d.textbbox((0, 0), config.SOCIAL_HANDLE, font=handle_font)
     d.text((x, cy - (hb[3] - hb[1]) / 2 - hb[1]), config.SOCIAL_HANDLE,
            font=handle_font, fill=color)
 
     # ---- Right: control-room line (Hindi) ----
-    cr_font = _hindi_font(int(band_h * 0.42))
+    cr_font = _hindi_font(int(band_h * 0.32))
     cb = d.textbbox((0, 0), config.CONTROL_ROOM_TEXT, font=cr_font)
     cw = cb[2] - cb[0]
     d.text((W - pad - cw - cb[0], cy - (cb[3] - cb[1]) / 2 - cb[1]),
@@ -161,8 +167,8 @@ def _append_footer(base: Image.Image) -> Image.Image:
 # Public entry point
 # --------------------------------------------------------------------------- #
 def add_branding(image_bytes: bytes) -> Image.Image:
-    """Overlay the logo on the image and append the footer band below it."""
+    """Frame the image: prepend the header band, then append the footer band."""
     base = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
-    _paste_logo(base)
-    branded = _append_footer(base)
+    with_header = _prepend_header(base)
+    branded = _append_footer(with_header)
     return branded.convert("RGB")

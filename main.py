@@ -1,9 +1,11 @@
-"""Poster pipeline — query in, branded poster out.
+"""Poster pipeline — query in, several branded posters out.
 
 Steps:
-  1. Expand the user's query into a dense prompt   (GeminiClient.generate_prompt)
-  2. Generate the poster image from that prompt     (GeminiClient.generate_image)
-  3. Overlay the police logo + footer band          (compositor.add_branding)
+  1. Expand the query into N design-variant prompts  (GeminiClient.generate_prompts)
+  2. Generate a poster image from each prompt          (GeminiClient.generate_image)
+  3. Frame each with the header + footer band          (compositor.add_branding)
+
+All variants share the same data; only the design differs.
 
 Usage:
     python main.py "your topic / facts here"
@@ -31,23 +33,38 @@ def run(user_query: str) -> None:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base = config.OUTPUT_DIR / f"{stamp}_{_slug(user_query)}"
 
-    print("→ [1/3] Building detailed prompt with", config.TEXT_MODEL, "...")
-    detailed = client.generate_prompt(user_query)
-    prompt_path = base.with_suffix(".prompt.txt")
-    prompt_path.write_text(detailed, encoding="utf-8")
-    print(f"    saved prompt -> {prompt_path.name}")
+    print("→ [1/3] Building design-variant prompts with", config.TEXT_MODEL, "...")
+    variants = client.generate_prompts(user_query)
+    print(f"    got {len(variants)} variant prompt(s)")
 
-    print("→ [2/3] Generating image with", config.IMAGE_MODEL, "...")
-    raw = client.generate_image(detailed)
-    raw_path = base.with_suffix(".raw.png")
-    raw_path.write_bytes(raw)
-    print(f"    saved raw image -> {raw_path.name}")
+    finals = []
+    for i, prompt in enumerate(variants, start=1):
+        tag = f"v{i}"
+        prompt_path = base.with_suffix(f".{tag}.prompt.txt")
+        prompt_path.write_text(prompt, encoding="utf-8")
 
-    print("→ [3/3] Adding logo header + footer band ...")
-    final = compositor.add_branding(raw)
-    final_path = base.with_suffix(".final.png")
-    final.save(final_path)
-    print(f"\n✓ Done. Final poster -> {final_path}")
+        print(f"→ [2/3] Variant {i}/{len(variants)}: generating image with",
+              config.IMAGE_MODEL, "...")
+        try:
+            raw = client.generate_image(prompt)
+        except Exception as exc:  # one bad variant shouldn't sink the rest
+            print(f"    ✗ variant {i} failed: {exc}")
+            continue
+        raw_path = base.with_suffix(f".{tag}.raw.png")
+        raw_path.write_bytes(raw)
+
+        print(f"→ [3/3] Variant {i}/{len(variants)}: adding header + footer ...")
+        final = compositor.add_branding(raw)
+        final_path = base.with_suffix(f".{tag}.final.png")
+        final.save(final_path)
+        finals.append(final_path)
+        print(f"    ✓ {final_path.name}")
+
+    if not finals:
+        raise RuntimeError("No posters were produced (all variants failed).")
+    print(f"\n✓ Done. {len(finals)} poster(s):")
+    for p in finals:
+        print(f"    {p}")
 
 
 if __name__ == "__main__":

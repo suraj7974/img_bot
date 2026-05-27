@@ -14,6 +14,10 @@ ROOT = Path(__file__).resolve().parent
 TEXT_MODEL = "gemini-2.5-pro"          # step 1: query -> detailed image prompt
 IMAGE_MODEL = "gemini-3.1-flash-image-preview"  # step 2: prompt -> generated poster
 
+# How many design variants to produce per query. The text model returns this
+# many prompts (same data, different design); each becomes its own poster.
+NUM_VARIANTS = 2
+
 # ----------------------------------------------------------------------------
 # Files / folders
 # ----------------------------------------------------------------------------
@@ -23,35 +27,34 @@ OUTPUT_DIR = ROOT / "output"
 # ----------------------------------------------------------------------------
 # Branding text
 # ----------------------------------------------------------------------------
+DEPARTMENT_NAME = "महासमुंद पुलिस"   # header — centred between the two logos
 SOCIAL_HANDLE = "/Mahasamundpolice"
 CONTROL_ROOM_TEXT = "कंट्रोल रूम नं. - 9479229939"
 
 # ----------------------------------------------------------------------------
 # Layout ratios
 # ----------------------------------------------------------------------------
-# Top-left corner handling. The image model stamps a wide "LOGO" placeholder
-# box (border + text) here. We repaint that whole footprint with the surrounding
-# background colour (erasing the box), then paste the logo on the clean area.
-WIPE_WIDTH_RATIO = 0.25        # placeholder-box footprint width  (fraction of width)
-WIPE_HEIGHT_RATIO = 0.177      # placeholder-box footprint height (fraction of height)
-LOGO_WIDTH_RATIO = 0.15        # logo width as a fraction of image width
-LOGO_MARGIN_RATIO = 0.02       # margin from the top-left corner
-
-# Footer band is APPENDED below the image (the canvas is extended downward),
-# so nothing on the original poster is ever covered or cut.
+# Header band is PREPENDED above the image (the canvas is extended upward), and
+# the footer band is APPENDED below it. Both are separate strips, so nothing on
+# the original generated poster is ever covered or cut.
+HEADER_HEIGHT_RATIO = 0.11     # prepended band height as a fraction of image height
+HEADER_LOGO_HEIGHT_RATIO = 1.56  # logo height as a fraction of the header band height
 FOOTER_HEIGHT_RATIO = 0.07     # appended band height as a fraction of image height
 
-# Flood-fill the logo's near-white background to transparent so it sits cleanly
-# on the wiped area with no visible box edge.
-LOGO_REMOVE_BG = True
+# The logo already ships with a transparent background, so no flood-fill is
+# needed. Set this True only if you swap in a logo with a solid white backdrop.
+LOGO_REMOVE_BG = False
 LOGO_BG_THRESH = 45         # colour tolerance for the white-background removal
 
 # ----------------------------------------------------------------------------
-# Footer colours
+# Band colours (header + footer share the same palette)
 # ----------------------------------------------------------------------------
-FOOTER_BG = (26, 56, 53)        # dark teal band
+HEADER_BG = (26, 56, 53)          # dark teal band (matches footer)
+HEADER_ACCENT_LINE = (181, 161, 78)  # olive/gold accent line under the header
+HEADER_TEXT = (255, 255, 255)     # white department name
+FOOTER_BG = (26, 56, 53)          # dark teal band
 FOOTER_TOP_LINE = (181, 161, 78)  # olive/gold accent line on top of the band
-FOOTER_TEXT = (255, 255, 255)   # white text + icons
+FOOTER_TEXT = (255, 255, 255)     # white text + icons
 
 # ----------------------------------------------------------------------------
 # Fonts

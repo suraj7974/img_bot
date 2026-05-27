@@ -3,8 +3,8 @@
 A single class that owns the Gemini client and exposes the two pipeline calls:
 
     client = GeminiClient()
-    prompt = client.generate_prompt("my topic and facts")
-    image_bytes = client.generate_image(prompt)
+    prompts = client.generate_prompts("my topic and facts")  # -> list[str]
+    image_bytes = client.generate_image(prompts[0])
 """
 
 import os
@@ -14,6 +14,13 @@ from google import genai
 
 import config
 import prompts
+
+_NUMBER_WORDS = {1: "ONE", 2: "TWO", 3: "THREE", 4: "FOUR", 5: "FIVE", 6: "SIX"}
+
+
+def _count_word(n: int) -> str:
+    """Spell a small count for the prompt (falls back to the digit)."""
+    return _NUMBER_WORDS.get(n, str(n))
 
 
 class GeminiClient:
@@ -28,18 +35,32 @@ class GeminiClient:
             )
         self._client = genai.Client(api_key=key)
 
-    # -- Step 1: query -> detailed image prompt ----------------------------- #
-    def generate_prompt(self, user_query: str) -> str:
-        """Expand a short user query into a dense image-generation prompt."""
-        instruction = prompts.SYSTEM_PROMPT.replace("{User Query}", user_query.strip())
+    # -- Step 1: query -> N detailed image prompts (same data, diff design) -- #
+    def generate_prompts(self, user_query: str) -> list[str]:
+        """Expand a short user query into NUM_VARIANTS image-generation prompts.
+
+        The text model returns the variants separated by a `===VARIANT===` line;
+        we split on that delimiter. All variants carry the same data and differ
+        only in design.
+        """
+        n = config.NUM_VARIANTS
+        instruction = (
+            prompts.SYSTEM_PROMPT
+            .replace("{COUNT}", _count_word(n))
+            .replace("{User Query}", user_query.strip())
+        )
         response = self._client.models.generate_content(
             model=config.TEXT_MODEL,
             contents=instruction,
         )
         text = (response.text or "").strip()
         if not text:
-            raise RuntimeError("Text model returned an empty prompt.")
-        return text
+            raise RuntimeError("Text model returned an empty response.")
+
+        variants = [p.strip() for p in text.split("===VARIANT===") if p.strip()]
+        if not variants:
+            raise RuntimeError("Text model returned no usable prompts.")
+        return variants[:n]  # never produce more than configured, even if the model over-returns
 
     # -- Step 2: detailed prompt -> image bytes ----------------------------- #
     def generate_image(self, prompt: str) -> bytes:
