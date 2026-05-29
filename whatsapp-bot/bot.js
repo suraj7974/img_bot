@@ -162,30 +162,43 @@ async function handlePrompt(message, chat) {
     return;
   }
 
-  await message.reply("⏳ Generating your poster… this may take a minute.");
+  await message.reply("⏳ Generating your posters… this may take a minute.");
   chat.sendStateTyping().catch(() => {});
 
-  let finalPath;
+  let finalPaths;
   try {
-    finalPath = await runPipeline(prompt);
+    finalPaths = await runPipeline(prompt);
   } catch (err) {
     console.error("pipeline error:", err);
     await message.reply("❌ Sorry, generation failed:\n" + truncate(String(err), 500));
     return;
   }
 
-  try {
-    const media = MessageMedia.fromFilePath(finalPath);
-    await message.reply(media, undefined, { caption: "✅ Here's your poster." });
-  } catch (err) {
-    console.error("send error:", err);
-    await message.reply("❌ Generated the poster but failed to send it: " + err.message);
+  const total = finalPaths.length;
+  for (let i = 0; i < total; i++) {
+    const p = finalPaths[i];
+    try {
+      const media = MessageMedia.fromFilePath(p);
+      const caption = total === 1 ? "✅ Here's your poster." : `✅ Variant ${i + 1}/${total}`;
+      await message.reply(media, undefined, { caption });
+    } catch (err) {
+      console.error("send error for", p, err);
+      await message.reply(`❌ Failed to send variant ${i + 1}: ${err.message}`);
+    }
   }
 }
 
 /**
- * Run `python3 main.py "<prompt>"` in the repo root and resolve with the path
- * of the generated final poster (parsed from the script's stdout).
+ * Run `python3 main.py "<prompt>"` in the repo root and resolve with the list
+ * of generated final poster paths.
+ *
+ * main.py now produces multiple variants and prints:
+ *     ✓ Done. N poster(s):
+ *         /abs/path/x.v1.final.png
+ *         /abs/path/x.v2.final.png
+ *         ...
+ * so we scrape every line ending in `.final.png` from stdout. We also
+ * filesystem-verify each one in case stdout is mangled.
  */
 function runPipeline(prompt) {
   return new Promise((resolve, reject) => {
@@ -209,12 +222,28 @@ function runPipeline(prompt) {
       if (code !== 0) {
         return reject(new Error(`main.py exited with code ${code}\n${stderr || stdout}`));
       }
-      // main.py prints: "✓ Done. Final poster -> <path>"
-      const match = stdout.match(/Final poster ->\s*(.+\.final\.png)\s*$/m);
-      if (!match) {
-        return reject(new Error("Could not find output path in main.py output."));
+      const fs = require("fs");
+      const seen = new Set();
+      const paths = [];
+      // Match any token ending in .final.png (absolute or relative).
+      const re = /(\S+\.final\.png)/g;
+      let m;
+      while ((m = re.exec(stdout)) !== null) {
+        const abs = path.resolve(REPO_ROOT, m[1]);
+        if (seen.has(abs)) continue;
+        if (!fs.existsSync(abs)) continue;
+        seen.add(abs);
+        paths.push(abs);
       }
-      resolve(path.resolve(REPO_ROOT, match[1].trim()));
+      if (paths.length === 0) {
+        return reject(
+          new Error(
+            "Could not find any output paths in main.py output.\n--- stdout ---\n" +
+              truncate(stdout, 1000)
+          )
+        );
+      }
+      resolve(paths);
     });
   });
 }
