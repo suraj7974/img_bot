@@ -1,0 +1,15 @@
+{
+  "name": "img-bot-whatsapp",
+  "version": "1.0.0",
+  "description": "WhatsApp bot that drives the poster pipeline (main.py) via whatsapp-web.js",
+  "type": "commonjs",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "genai": "^0.0.18",
+    "qrcode-terminal": "^0.12.0",
+    "whatsapp-web.js": "^1.26.0"
+  }
+}
