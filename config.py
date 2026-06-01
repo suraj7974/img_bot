@@ -4,9 +4,11 @@ Edit the values here to tweak models, branding text, colours and layout.
 Nothing else in the codebase hard-codes these.
 """
 
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+_IS_LINUX = sys.platform.startswith("linux")
 
 # ----------------------------------------------------------------------------
 # Gemini models
@@ -59,6 +61,12 @@ FOOTER_TEXT = (255, 255, 255)     # white text + icons
 # ----------------------------------------------------------------------------
 # Fonts
 # ----------------------------------------------------------------------------
-HINDI_FONT = "/System/Library/Fonts/Supplemental/Devanagari Sangam MN.ttc"
-HINDI_FONT_INDEX = 1   # 0 = Regular, 1 = Bold
-LATIN_FONT = "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
+if _IS_LINUX:
+    # Ubuntu: install via `apt install fonts-noto fonts-liberation`.
+    HINDI_FONT = "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Bold.ttf"
+    HINDI_FONT_INDEX = 0
+    LATIN_FONT = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
+else:
+    HINDI_FONT = "/System/Library/Fonts/Supplemental/Devanagari Sangam MN.ttc"
+    HINDI_FONT_INDEX = 1   # 0 = Regular, 1 = Bold
+    LATIN_FONT = "/System/Library/Fonts/Supplemental/Arial Bold.ttf"

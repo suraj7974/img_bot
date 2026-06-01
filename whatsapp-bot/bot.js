@@ -3,17 +3,14 @@
  * ===================
  *
  * Flow (groups only):
- *   1. A user mentions the bot ("@91…") in a group with the words "generate poster".
+ *   1. A user mentions the bot in a group with the words "generate poster".
  *   2. The bot replies "send prompt".
- *   3. The user *replies to that "send prompt" message* with the actual prompt text.
- *      (Only a reply to that exact message counts — all other chatter is ignored.)
- *   4. The bot runs `python3 main.py "<prompt>"` in the repo root and, when the
- *      pipeline finishes, sends the generated poster back as a reply to the
- *      user's prompt message.
- *
- * The bot never touches messages that aren't part of this flow.
+ *   3. The user replies to that "send prompt" message with the actual prompt.
+ *   4. The bot runs `python3 main.py "<prompt>"`, sends each generated poster
+ *      back as a reply, then deletes the local output files for that run.
  */
 
+const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
 const qrcode = require("qrcode-terminal");
@@ -24,22 +21,19 @@ const { Client, LocalAuth, MessageMedia } = require("whatsapp-web.js");
 // ---------------------------------------------------------------------------
 const REPO_ROOT = path.resolve(__dirname, "..");
 const PYTHON = process.env.PYTHON_BIN || "python3";
-const TRIGGER = "generate poster"; // case-insensitive substring of the mention msg
-const ASK_PROMPT_REPLY = "send prompt"; // exactly what the bot replies with
-
-// Message IDs of every "send prompt" message we've posted. A reply that quotes
-// one of these is treated as the prompt. Bounded so it can't grow forever.
-const askPromptIds = new Set();
+const TRIGGER = "generate poster";
+const ASK_PROMPT_REPLY = "send prompt";
 const MAX_TRACKED = 500;
 
-// Message IDs we've already handled (dedupes message + message_create events).
+// IDs of "send prompt" messages we've sent — a reply quoting one is treated
+// as the actual prompt.
+const askPromptIds = new Set();
+// IDs of messages we've already handled (dedupes message + message_create).
 const seenIds = new Set();
 
-function rememberAskId(id) {
-  askPromptIds.add(id);
-  if (askPromptIds.size > MAX_TRACKED) {
-    askPromptIds.delete(askPromptIds.values().next().value);
-  }
+function rememberId(set, id) {
+  set.add(id);
+  if (set.size > MAX_TRACKED) set.delete(set.values().next().value);
 }
 
 // ---------------------------------------------------------------------------
@@ -49,106 +43,72 @@ const client = new Client({
   authStrategy: new LocalAuth({ dataPath: path.join(__dirname, ".wwebjs_auth") }),
   puppeteer: {
     headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+    ],
   },
 });
 
+let botId = null;
+
 client.on("qr", (qr) => {
-  console.log("\nScan this QR code in WhatsApp (Linked devices):\n");
+  console.log("\nScan this QR in WhatsApp → Linked devices:\n");
   qrcode.generate(qr, { small: true });
 });
 
-client.on("authenticated", () => console.log("✓ Authenticated."));
-client.on("auth_failure", (m) => console.error("✗ Auth failure:", m));
-client.on("disconnected", (r) => console.error("✗ Disconnected:", r));
+client.on("authenticated", () => console.log("authenticated"));
+client.on("auth_failure", (m) => console.error("auth failure:", m));
+client.on("disconnected", (r) => console.error("disconnected:", r));
 
 client.on("ready", () => {
-  console.log("✓ Bot is ready. WID:", client.info && client.info.wid._serialized);
+  botId = client.info && client.info.wid && client.info.wid._serialized;
+  console.log("ready — bot wid:", botId);
 });
 
 // ---------------------------------------------------------------------------
 // Message handling
 // ---------------------------------------------------------------------------
-client.on("message", (message) => handleMessage(message, "message"));
-// Some WhatsApp Web builds only deliver group messages via "message_create".
-client.on("message_create", (message) => {
-  if (message.fromMe) return; // ignore our own outgoing messages
-  handleMessage(message, "message_create");
+client.on("message", (m) => handleMessage(m));
+client.on("message_create", (m) => {
+  if (!m.fromMe) handleMessage(m);
 });
 
-async function handleMessage(message, source) {
+async function handleMessage(message) {
   try {
-    // The same message can arrive via both "message" and "message_create".
-    // Process each message id only once.
     const msgId = message.id && message.id._serialized;
     if (msgId) {
       if (seenIds.has(msgId)) return;
-      seenIds.add(msgId);
-      if (seenIds.size > MAX_TRACKED) seenIds.delete(seenIds.values().next().value);
+      rememberId(seenIds, msgId);
     }
 
-    const botId = client.info.wid._serialized;
-    const botNumber = botId.split("@")[0]; // e.g. "918962109199"
+    // We only care about text messages — skip stickers, audio, media, etc.
+    if (message.type !== "chat") return;
+
     const chat = await message.getChat();
+    if (!chat.isGroup) return;
 
-    // -- DEBUG: dump everything we know about this message ------------------
-    console.log("──────────── incoming (" + source + ") ────────────");
-    console.log("  from        :", message.from);
-    console.log("  author      :", message.author);
-    console.log("  fromMe      :", message.fromMe);
-    console.log("  isGroup     :", chat.isGroup);
-    console.log("  type        :", message.type);
-    console.log("  body        :", JSON.stringify(message.body));
-    console.log("  mentionedIds:", JSON.stringify(message.mentionedIds));
-    console.log("  hasQuotedMsg:", message.hasQuotedMsg);
-    console.log("  botId       :", botId, "| botNumber:", botNumber);
-
-    if (!chat.isGroup) {
-      console.log("  → skip: not a group");
-      return;
-    }
-
-    // --- Case A: a reply that quotes one of our "send prompt" messages ----
+    // Case A: reply quoting one of our "send prompt" messages → the prompt.
     if (message.hasQuotedMsg) {
       const quoted = await message.getQuotedMessage();
-      console.log("  quotedId    :", quoted.id._serialized);
-      console.log("  tracked ids :", JSON.stringify([...askPromptIds]));
       if (askPromptIds.has(quoted.id._serialized)) {
-        console.log("  → MATCH: reply to a 'send prompt' message → handling prompt");
         await handlePrompt(message, chat);
         return;
       }
-      console.log("  → quoted msg is not one of our 'send prompt' messages");
     }
 
-    // --- Case B: the start trigger — bot mentioned + "generate poster" ----
-    // Mentions can be @c.us or @lid ids that don't match the bot's WID, so
-    // resolve each mentioned contact and trust its `isMe` flag instead.
-    let mentioned = false;
-    try {
-      const mentions = await message.getMentions();
-      console.log(
-        "  mentions    :",
-        JSON.stringify(mentions.map((c) => ({ id: c.id._serialized, isMe: c.isMe })))
-      );
-      mentioned = mentions.some((c) => c.isMe);
-    } catch (e) {
-      console.log("  getMentions failed:", e.message);
-    }
-    const body = (message.body || "").toLowerCase();
-    const hasTrigger = body.includes(TRIGGER);
-    console.log("  mentioned   :", mentioned, "| hasTrigger:", hasTrigger);
+    // Case B: start trigger — bot mentioned + "generate poster".
+    if (!(message.body || "").toLowerCase().includes(TRIGGER)) return;
+    const mentions = await message.getMentions();
+    if (!mentions.some((c) => c.isMe)) return;
 
-    if (mentioned && hasTrigger) {
-      console.log("  → MATCH: trigger → replying 'send prompt'");
-      const reply = await message.reply(ASK_PROMPT_REPLY);
-      rememberAskId(reply.id._serialized);
-      console.log("  tracked reply id:", reply.id._serialized);
-    } else {
-      console.log("  → no action");
-    }
+    const reply = await message.reply(ASK_PROMPT_REPLY);
+    rememberId(askPromptIds, reply.id._serialized);
+    console.log("trigger →", chat.name || chat.id._serialized);
   } catch (err) {
-    console.error("message handler error:", err);
+    console.error("handler error:", err.message);
   }
 }
 
@@ -161,91 +121,83 @@ async function handlePrompt(message, chat) {
     await message.reply("⚠️ Empty prompt. Reply to *send prompt* with your topic.");
     return;
   }
+  console.log("prompt:", truncate(prompt, 120));
 
-  await message.reply("⏳ Generating your posters… this may take a minute.");
+  await message.reply("⏳ Generating your posters…");
   chat.sendStateTyping().catch(() => {});
 
   let finalPaths;
   try {
     finalPaths = await runPipeline(prompt);
   } catch (err) {
-    console.error("pipeline error:", err);
-    await message.reply("❌ Sorry, generation failed:\n" + truncate(String(err), 500));
+    console.error("pipeline failed:", err.message);
+    await message.reply("❌ Generation failed:\n" + truncate(String(err.message), 500));
     return;
   }
 
   const total = finalPaths.length;
+  const sent = [];
   for (let i = 0; i < total; i++) {
     const p = finalPaths[i];
     try {
       const media = MessageMedia.fromFilePath(p);
       const caption = total === 1 ? "✅ Here's your poster." : `✅ Variant ${i + 1}/${total}`;
       await message.reply(media, undefined, { caption });
+      sent.push(p);
     } catch (err) {
-      console.error("send error for", p, err);
+      console.error("send error", p, err.message);
       await message.reply(`❌ Failed to send variant ${i + 1}: ${err.message}`);
     }
   }
+  cleanupRunFiles(sent);
+  console.log(`sent ${sent.length}/${total} posters, files cleaned`);
 }
 
 /**
- * Run `python3 main.py "<prompt>"` in the repo root and resolve with the list
- * of generated final poster paths.
- *
- * main.py now produces multiple variants and prints:
- *     ✓ Done. N poster(s):
- *         /abs/path/x.v1.final.png
- *         /abs/path/x.v2.final.png
- *         ...
- * so we scrape every line ending in `.final.png` from stdout. We also
- * filesystem-verify each one in case stdout is mangled.
+ * Run `python3 main.py "<prompt>"` and return the list of generated `.final.png`
+ * paths scraped from stdout (filesystem-verified).
  */
 function runPipeline(prompt) {
   return new Promise((resolve, reject) => {
     const child = spawn(PYTHON, ["main.py", prompt], { cwd: REPO_ROOT });
-
     let stdout = "";
     let stderr = "";
-    child.stdout.on("data", (d) => {
-      const s = d.toString();
-      stdout += s;
-      process.stdout.write("[py] " + s);
-    });
-    child.stderr.on("data", (d) => {
-      const s = d.toString();
-      stderr += s;
-      process.stderr.write("[py:err] " + s);
-    });
-
-    child.on("error", (err) => reject(err));
+    child.stdout.on("data", (d) => (stdout += d.toString()));
+    child.stderr.on("data", (d) => (stderr += d.toString()));
+    child.on("error", reject);
     child.on("close", (code) => {
       if (code !== 0) {
-        return reject(new Error(`main.py exited with code ${code}\n${stderr || stdout}`));
+        return reject(new Error(`main.py exited ${code}: ${truncate(stderr || stdout, 800)}`));
       }
-      const fs = require("fs");
       const seen = new Set();
       const paths = [];
-      // Match any token ending in .final.png (absolute or relative).
       const re = /(\S+\.final\.png)/g;
       let m;
       while ((m = re.exec(stdout)) !== null) {
         const abs = path.resolve(REPO_ROOT, m[1]);
-        if (seen.has(abs)) continue;
-        if (!fs.existsSync(abs)) continue;
+        if (seen.has(abs) || !fs.existsSync(abs)) continue;
         seen.add(abs);
         paths.push(abs);
       }
       if (paths.length === 0) {
-        return reject(
-          new Error(
-            "Could not find any output paths in main.py output.\n--- stdout ---\n" +
-              truncate(stdout, 1000)
-          )
-        );
+        return reject(new Error("no .final.png paths found in main.py output"));
       }
       resolve(paths);
     });
   });
+}
+
+/**
+ * After WhatsApp confirms the send, drop the local copies for that run:
+ * the .final.png, its .raw.png twin, and the .prompt.txt sibling. Best-effort.
+ */
+function cleanupRunFiles(finalPaths) {
+  for (const p of finalPaths) {
+    const siblings = [p, p.replace(/\.final\.png$/, ".raw.png"), p.replace(/\.final\.png$/, ".prompt.txt")];
+    for (const s of siblings) {
+      fs.promises.unlink(s).catch(() => {});
+    }
+  }
 }
 
 function truncate(s, n) {
