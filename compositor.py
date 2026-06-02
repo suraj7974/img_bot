@@ -80,7 +80,7 @@ def _prepend_header(base: Image.Image) -> Image.Image:
     canvas.paste(logo, (W - pad - target_w, ly), logo)     # right
 
     # Department name centred between the logos.
-    name_font = _hindi_font(int(band_h * 0.55))
+    name_font = _latin_font(int(band_h * 0.55))
     nb = d.textbbox((0, 0), config.DEPARTMENT_NAME, font=name_font)
     nw = nb[2] - nb[0]
     d.text(((W - nw) / 2 - nb[0], band_h / 2 - (nb[3] - nb[1]) / 2 - nb[1]),
@@ -153,12 +153,23 @@ def _append_footer(base: Image.Image) -> Image.Image:
     d.text((x, cy - (hb[3] - hb[1]) / 2 - hb[1]), config.SOCIAL_HANDLE,
            font=handle_font, fill=color)
 
-    # ---- Right: control-room line (Hindi) ----
-    cr_font = _hindi_font(int(band_h * 0.32))
-    cb = d.textbbox((0, 0), config.CONTROL_ROOM_TEXT, font=cr_font)
-    cw = cb[2] - cb[0]
-    d.text((W - pad - cw - cb[0], cy - (cb[3] - cb[1]) / 2 - cb[1]),
-           config.CONTROL_ROOM_TEXT, font=cr_font, fill=color)
+    # ---- Right: stacked contact lines (phone / email / website) ----
+    contact_lines = [s for s in (
+        getattr(config, "FOOTER_PHONE", ""),
+        getattr(config, "FOOTER_EMAIL", ""),
+        getattr(config, "FOOTER_WEBSITE", ""),
+    ) if s]
+    if contact_lines:
+        contact_font = _latin_font(int(band_h * 0.18))
+        line_gap = int(band_h * 0.06)
+        bboxes = [d.textbbox((0, 0), s, font=contact_font) for s in contact_lines]
+        heights = [b[3] - b[1] for b in bboxes]
+        block_h = sum(heights) + line_gap * (len(contact_lines) - 1)
+        y = cy - block_h // 2
+        for s, b, h in zip(contact_lines, bboxes, heights):
+            cw = b[2] - b[0]
+            d.text((W - pad - cw - b[0], y - b[1]), s, font=contact_font, fill=color)
+            y += h + line_gap
 
     return canvas
 
