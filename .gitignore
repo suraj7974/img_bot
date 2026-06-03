@@ -1,5 +1,18 @@
 .venv/
 .env
-output/
 __pycache__/
 *.pyc
+*.egg-info/
+build/
+dist/
+
+# legacy single-tenant output
+output/
+
+# multi-tenant local mirror (logos, sample posters, generated posters per phone)
+data/
+
+# WhatsApp local auth session
+whatsapp-bot/.wwebjs_auth/
+whatsapp-bot/.wwebjs_cache/
+whatsapp-bot/node_modules/
