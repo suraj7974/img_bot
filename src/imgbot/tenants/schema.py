@@ -37,14 +37,26 @@ _PHONE_DIGITS = re.compile(r"\D+")
 
 
 def normalize_phone(raw: str) -> str:
-    """Canonicalise any WhatsApp/E.164-ish input into `+<digits>`."""
+    """Canonicalise any WhatsApp/E.164-ish input into `+<digits>`.
+
+    Enforces 11-15 digits total — E.164's hard ceiling is 15, and 11 is the
+    practical floor once you include a country code (US +1xxx10digits = 11,
+    India +91xxxxxxxxxx = 12). This catches the common operator typo of
+    omitting the country code (`9876543210` → got 10 digits, missing +91).
+    """
     if not raw:
-        raise ValueError("empty phone")
+        raise ValueError("phone is empty")
     # Drop the WhatsApp suffix and anything after @, then strip non-digits.
     head = raw.split("@", 1)[0]
     digits = _PHONE_DIGITS.sub("", head)
     if not digits:
         raise ValueError(f"no digits in phone: {raw!r}")
+    if len(digits) < 11 or len(digits) > 15:
+        raise ValueError(
+            f"phone has {len(digits)} digits; expected 11-15 (E.164 with country code). "
+            f"For Indian numbers use +91 followed by the 10-digit mobile, "
+            f"e.g. +917974387273. Got {raw!r}."
+        )
     return "+" + digits
 
 
@@ -64,7 +76,10 @@ class BusinessInfo(BaseModel):
 
 class BrandIdentity(BaseModel):
     """Visible branding strings composited by the pipeline."""
-    dept_name: str                      # centre of the header band
+    # Centre of the header band. Optional — when None / empty, the header
+    # renders as a logos-only strip with no centre text (cleaner if the
+    # tenant doesn't want a tagline or business name at the top).
+    dept_name: Optional[str] = None
     social_handle: Optional[str] = None  # next to glyphs in footer left
     footer_phone: Optional[str] = None
     footer_email: Optional[str] = None

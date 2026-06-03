@@ -91,12 +91,14 @@ def _prepend_header(base: Image.Image, theme: Theme, brand: BrandIdentity,
     canvas.paste(logo_scaled, (pad, ly), logo_scaled)                    # left
     canvas.paste(logo_scaled, (W - pad - target_w, ly), logo_scaled)     # right
 
-    # Department / business name centred between the logos.
-    name_font = _header_font(int(band_h * 0.55), theme.language)
-    nb = d.textbbox((0, 0), brand.dept_name, font=name_font)
-    nw = nb[2] - nb[0]
-    d.text(((W - nw) / 2 - nb[0], band_h / 2 - (nb[3] - nb[1]) / 2 - nb[1]),
-           brand.dept_name, font=name_font, fill=hex_to_rgb(theme.header_text))
+    # Optional centre text (business name / tagline). Skip entirely when
+    # blank — the header renders as a clean logos-only strip.
+    if brand.dept_name and brand.dept_name.strip():
+        name_font = _header_font(int(band_h * 0.55), theme.language)
+        nb = d.textbbox((0, 0), brand.dept_name, font=name_font)
+        nw = nb[2] - nb[0]
+        d.text(((W - nw) / 2 - nb[0], band_h / 2 - (nb[3] - nb[1]) / 2 - nb[1]),
+               brand.dept_name, font=name_font, fill=hex_to_rgb(theme.header_text))
 
     return canvas
 

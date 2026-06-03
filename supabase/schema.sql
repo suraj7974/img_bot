@@ -55,6 +55,12 @@ create table if not exists img_bot.tenants (
   updated_at          timestamptz not null default now()
 );
 
+-- Idempotent cleanup for deployments that had the earlier short-lived
+-- `trends_context` column. Trend awareness is now baked into the system
+-- prompt at onboarding (via Opus + web search) rather than stored per-tenant.
+alter table img_bot.tenants
+  drop column if exists trends_context;
+
 -- Keep `updated_at` honest on every UPDATE.
 create or replace function img_bot.touch_updated_at() returns trigger as $$
 begin

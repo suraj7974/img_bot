@@ -79,9 +79,9 @@ class ClaudeClient:
             Optional operator-supplied free-text ("what kind of posters do you
             want?"). Style / audience / tone guidance — not facts to invent.
 
-        Pricing-wise this fires rarely (once per tenant onboarding), so we run
-        Opus 4.8 at high effort with adaptive thinking — quality matters far
-        more than cost here, since the output drives every future generation.
+        Sonnet 4.6, no thinking, medium effort, forced tool output. Bounded to
+        one call (~$0.05–0.10) — earlier Opus + adaptive thinking + web_search
+        + pause_turn loop combo could run for 15 min and cost $1+ per onboarding.
         """
         sample_images = sample_images or []
         user_blocks: list[dict] = [
@@ -116,18 +116,54 @@ class ClaudeClient:
 
         user_blocks.append({"type": "text", "text": meta_prompts.ONBOARDING_FINAL_CUE})
 
+        # Force the output through a tool so the parsed result is GUARANTEED
+        # to be just the prompt text — no preamble, no "here's the prompt:"
+        # narration leaking into the saved system_prompt column.
+        tool = {
+            "name": "emit_system_prompt",
+            "description": (
+                "Emit the complete per-tenant SYSTEM PROMPT as a single string. "
+                "This string is stored verbatim and used as the system block on every "
+                "future runtime call for this tenant."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "system_prompt": {
+                        "type": "string",
+                        "description": (
+                            "The complete per-tenant system prompt text, ready to ship "
+                            "verbatim to the runtime model. No markdown fences, no "
+                            "commentary, no 'here is the prompt:' framing — just the "
+                            "prompt body itself."
+                        ),
+                    },
+                },
+                "required": ["system_prompt"],
+            },
+        }
+
+        # One bounded call. No server tools, no thinking, forced tool_choice for
+        # clean parsing. Festivals / seasonal moments come from Claude's training
+        # knowledge (cutoff Jan 2026 covers all of 2026 fine).
         response = self._client.messages.create(
             model=config.CLAUDE_ONBOARDING_MODEL,
-            max_tokens=16000,
-            thinking={"type": "adaptive"},
-            output_config={"effort": "high"},
+            max_tokens=8000,
+            thinking={"type": "disabled"},
+            output_config={"effort": "medium"},
             system=meta_prompts.ONBOARDING_SYSTEM,
+            tools=[tool],
+            tool_choice={"type": "tool", "name": "emit_system_prompt"},
             messages=[{"role": "user", "content": user_blocks}],
         )
-        text = "".join(b.text for b in response.content if b.type == "text").strip()
-        if not text:
-            raise RuntimeError("Claude returned no system prompt text during onboarding.")
-        return text
+
+        for block in response.content:
+            if block.type == "tool_use" and block.name == "emit_system_prompt":
+                prompt = block.input.get("system_prompt", "").strip()
+                if not prompt:
+                    raise RuntimeError("emit_system_prompt tool was called with empty content.")
+                return prompt
+        raise RuntimeError("Claude did not invoke the emit_system_prompt tool.")
 
     # ------------------------------------------------------------------ #
     # Runtime: system_prompt + history + date → {idea_title, detailed_prompt}

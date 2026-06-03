@@ -79,7 +79,9 @@ def run_for_phone(
     # ---- Claude: idea + detailed prompt ----------------------------------- #
     recent = store.get_recent_idea_titles(tenant.id, n=history_n)
     plan = claude.expand_to_image_prompt(
-        tenant.system_prompt, recent_idea_titles=recent, today=date.today()
+        tenant.system_prompt,
+        recent_idea_titles=recent,
+        today=date.today(),
     )
     idea_title = plan["idea_title"]
     detailed_prompt = plan["detailed_prompt"]

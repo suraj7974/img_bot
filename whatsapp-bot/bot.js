@@ -40,11 +40,51 @@ function rememberId(set, id) {
   if (set.size > MAX_TRACKED) set.delete(set.values().next().value);
 }
 
-function senderPhone(message) {
-  // whatsapp-web.js returns IDs like "917974387273@c.us". Strip suffix and
-  // re-add the leading + for E.164.
-  const raw = (message.from || "").split("@")[0].replace(/\D+/g, "");
-  return raw ? `+${raw}` : null;
+async function senderPhone(message) {
+  // WhatsApp uses three flavours of sender ID:
+  //   "+91…@c.us"   — legacy DM, the digits ARE the phone number
+  //   "1234…@lid"   — Linked Identifier (privacy layer), the digits are NOT a phone
+  //   "+91…@g.us"   — group ID (only seen on message.from in groups)
+  //
+  // For @lid we cannot derive the phone from the ID — we have to ask
+  // WhatsApp via getContact(), which resolves the underlying @c.us identity.
+  try {
+    const contact = await message.getContact();
+    if (contact) {
+      if (contact.number) {
+        const digits = String(contact.number).replace(/\D+/g, "");
+        if (digits) return `+${digits}`;
+      }
+      if (contact.id && contact.id.server === "c.us" && contact.id.user) {
+        const digits = String(contact.id.user).replace(/\D+/g, "");
+        if (digits) return `+${digits}`;
+      }
+    }
+  } catch (e) {
+    console.warn("getContact failed:", e.message);
+  }
+
+  // Legacy fallback for old @c.us chats only — never trust @lid digits as a phone.
+  const idRaw = message.author || message.from || "";
+  if (idRaw.endsWith("@c.us")) {
+    const digits = idRaw.split("@")[0].replace(/\D+/g, "");
+    if (digits) return `+${digits}`;
+  }
+  return null;
+}
+
+function isNonDmChat(message, chat) {
+  // Belt-and-suspenders: whatsapp-web.js's `chat.isGroup` is sometimes false
+  // when chat metadata isn't fully hydrated. Check the underlying chat id
+  // suffix too — `@g.us` = group, `@newsletter`/`@broadcast` = channels.
+  if (chat && chat.isGroup) return true;
+  const chatId =
+    (chat && chat.id && chat.id._serialized) || message.from || "";
+  return (
+    chatId.endsWith("@g.us") ||
+    chatId.endsWith("@newsletter") ||
+    chatId.endsWith("@broadcast")
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -94,18 +134,31 @@ async function handleMessage(message) {
 
     if (message.type !== "chat") return;
     const chat = await message.getChat();
-    if (chat.isGroup) return; // DMs only
+    if (isNonDmChat(message, chat)) {
+      // Quiet drop — we don't want to spam groups with "you're not onboarded".
+      const chatId = (chat && chat.id && chat.id._serialized) || message.from;
+      console.log(`ignored non-DM (${chatId})`);
+      return;
+    }
 
     const body = (message.body || "").trim();
     if (!body.toLowerCase().startsWith(TRIGGER)) return;
 
-    const phone = senderPhone(message);
+    const phone = await senderPhone(message);
     if (!phone) {
-      await message.reply("⚠️ Could not read your phone number from this chat.");
+      console.warn(
+        `could not resolve phone (from=${message.from}, author=${message.author || "-"})`
+      );
+      await message.reply(
+        "⚠️ Couldn't read your phone number from this chat. " +
+        "If your account uses WhatsApp's privacy lock, message your admin to onboard you manually."
+      );
       return;
     }
 
-    console.log("trigger →", phone);
+    console.log(
+      `trigger → ${phone}  (from=${message.from}, author=${message.author || "-"})`
+    );
     await message.reply("⏳ Generating your poster…");
     chat.sendStateTyping().catch(() => {});
 

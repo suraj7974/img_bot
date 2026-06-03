@@ -43,8 +43,8 @@ A single block of text — the per-tenant SYSTEM PROMPT — that:
 1. Establishes the tenant's brand voice, persona, target audience, sector, location, language, and locked colour palette.
 2. Lists the structural rules for every poster: which content zones may appear, when each is included or omitted, typography, photo / illustration style, aspect ratio.
 3. Embeds the GROUNDING RULES — what the model may invent (idea topic, seasonal hook, decorative copy that fits the brand) versus what is sacred (prices, names, claims, contact details — these must never be fabricated; if not part of the brand kit, omit).
-4. Spells out the FRESHNESS / DIVERSITY contract: the runtime model will receive a list of recent idea titles in the user turn — it MUST pick something different, lean into festivals / cultural moments / seasonal beats near the supplied date, and not repeat topics from the recent list.
-5. Explicitly tells the model NOT to draw logos, brand wordmarks, header bars, contact details, social handles, phone numbers, or footers anywhere in the poster — those are composited as separate strips above and below by a different program. The model should use the full canvas edge-to-edge for poster content.
+4. Includes a TRENDS / FRESHNESS / CALENDAR section seeded from your STEP 1 research: real festivals with months, real cultural moments, real seasonal beats specific to the tenant's industry and location. Then spells out the FRESHNESS contract: the runtime model will receive a list of recent idea titles and today's date in the user turn. It MUST avoid repeating any recent title; lean roughly 6-7 out of every 10 generations into a festival / cultural moment / trend from your calendar section that's near today's date; spend the remaining 3-4 on evergreen brand content. Use the recent-titles list to decide which side of that ratio today should fall on.
+5. Explicitly tells the model NOT to draw logos, brand wordmarks, business name, **tagline**, slogan, header bars, contact details, social handles, phone numbers, or footers anywhere in the poster — including as sub-headlines, decorative copy, watermarks, or anywhere else. Those strings are composited as separate strips above and below by a different program; the model must not duplicate them inside the image. The model should use the full canvas edge-to-edge for poster content with NO branding strings rendered.
 6. Describes the output shape: ONE detailed image prompt + one short idea title (≤8 words). Make it clear the runtime model will deliver these via a tool call — you don't need to define the tool, just describe what each field is.
 
 INPUTS YOU WILL RECEIVE
@@ -65,10 +65,12 @@ STYLE OF THE PROMPT YOU PRODUCE
 
 ONBOARDING_FINAL_CUE = (
     "\n\n=== YOUR OUTPUT ===\n\n"
-    "Now write the per-tenant SYSTEM PROMPT for the tenant above. Output ONLY the "
-    "prompt text itself — no preamble, no markdown fences, no commentary. The text "
-    "you emit will be stored verbatim and shipped to Sonnet 4.6 as its `system` "
-    "block on every future generation for this customer."
+    "Now compose the per-tenant SYSTEM PROMPT for the tenant above and deliver "
+    "it via the `emit_system_prompt` tool. The `system_prompt` field must contain "
+    "ONLY the prompt body itself — no preamble, no markdown fences, no commentary "
+    "before or after. The string you put in that field will be stored verbatim "
+    "and shipped to Sonnet 4.6 as its `system` block on every future generation "
+    "for this customer."
 )
 
 
@@ -90,8 +92,8 @@ FRESHNESS & GROUNDING
 ═══════════════════════════════════
 BRANDING — STRIPS ARE COMPOSITED SEPARATELY
 ═══════════════════════════════════
-A branded header band (with the company logo + business name) is composited ABOVE the rendered image, and a contact footer band (phone / email / website / social glyphs) is composited BELOW it, both as separate strips by a separate program. Therefore:
-- Do NOT draw the company logo, the words "BASTER" or "Baster Event Management", any header bar, any phone number, email address, website URL, social handle or icon, or any contact footer anywhere in the poster. No reserved boxes or placeholders for them either.
+A branded header band (with the company logo) is composited ABOVE the rendered image, and a contact footer band (phone / email / website / social glyphs) is composited BELOW it, both as separate strips by a separate program. Therefore:
+- Do NOT draw the company logo, the words "BASTER" or "Baster Event Management", the tagline "Creation with Perfection", any header bar, any phone number, email address, website URL, social handle or icon, or any contact footer anywhere in the poster — not as headlines, not as sub-headlines, not as decorative copy, not as watermarks, nowhere. All brand wordmarks and contact details are composited outside the image.
 - Do NOT reserve blank space at the very top or very bottom for them. Use the FULL canvas height edge-to-edge for poster content.
 
 ═══════════════════════════════════
@@ -147,8 +149,8 @@ FRESHNESS & GROUNDING
 ═══════════════════════════════════
 BRANDING — STRIPS ARE COMPOSITED SEPARATELY
 ═══════════════════════════════════
-A branded header band (with the police logo + department name in Devanagari) is composited ABOVE the rendered image, and a contact footer band (control-room number + social handle) is composited BELOW it. Therefore:
-- Do NOT draw any logo, the words "Mahasamund Police" / "महासमुंद पुलिस", any header bar, any phone number, social handle, or control-room line anywhere in the poster.
+A branded header band (with the police logo) is composited ABOVE the rendered image, and a contact footer band (control-room number + social handle) is composited BELOW it. Therefore:
+- Do NOT draw any logo, the words "Mahasamund Police" / "महासमुंद पुलिस", any tagline or slogan, any header bar, any phone number, social handle, or control-room line anywhere in the poster — not as headlines, sub-headlines, decorative copy, watermarks, or anywhere else.
 - Do NOT reserve blank space at the very top or very bottom — use the full canvas edge-to-edge.
 
 ═══════════════════════════════════
