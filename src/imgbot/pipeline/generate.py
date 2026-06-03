@@ -58,7 +58,7 @@ def run_for_phone(
     assets: Optional[AssetStore] = None,
     claude: Optional[ClaudeClient] = None,
     gemini: Optional[GeminiImageClient] = None,
-    history_n: int = 8,
+    history_n: int = 12,
 ) -> GenerationResult:
     """End-to-end: resolve tenant → generate → brand → save → bump quota."""
     store = store or TenantStore()

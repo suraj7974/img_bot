@@ -188,12 +188,12 @@ select idea_title, length(detailed_prompt) as chars, status, created_at
  order by created_at desc;
 ```
 
-### Run a few more to test diversity + trends
+### Run a few more to test diversity
 
 Run `imgbot generate ...` 4 more times back-to-back. Verify:
 
-- Each `idea_title` is distinct (the recent-history pool prevents repeats).
-- Roughly 3 of those 5 lean into a real festival, cultural moment or seasonal beat near today's date — that's the system prompt's embedded calendar doing its job. The 6-7 / 3-4 ratio is fuzzy at small N.
+- Each `idea_title` is distinct (the recent-history pool prevents repeats — last 12 carried into every call).
+- Topic relevance, trend-leaning and brand fit all come from the per-tenant system prompt; runtime just provides date + history. If you'd like richer trend awareness, that's planned for phase 2.
 - The 6th `imgbot generate` returns:
   ```
   {"error": "quota_exceeded", "message": "tenant ... is out of quota (5/5 used)"}

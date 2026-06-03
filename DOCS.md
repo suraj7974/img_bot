@@ -171,10 +171,10 @@ There are **three** AI calls in this system. Two are Claude, one is Gemini.
 
 **Fires:** every time a tenant requests a poster.
 **Inputs:**
-- the tenant's `system_prompt` from step 0 — sent as a cached system block (`cache_control: ephemeral`). This carries the TRENDS / FRESHNESS / CALENDAR section seeded at onboarding.
+- the tenant's `system_prompt` from step 0 — sent as a cached system block (`cache_control: ephemeral`). This carries all brand voice, structural rules, trend / freshness contract, and business-relevance rules baked in at onboarding.
 - a small user message assembled fresh each call:
   - today's date
-  - the last 8 `idea_title`s this tenant produced (the "don't repeat" pool)
+  - the last 12 `idea_title`s this tenant produced (the "don't repeat" pool)
 - a forced `tool_choice = emit_poster_plan` to guarantee the output parses as `{ idea_title, detailed_prompt }`
 
 **Output:** `{ idea_title: str (≤8 words), detailed_prompt: str (dense image-gen prompt) }`
@@ -207,18 +207,19 @@ The per-tenant `system_prompt` is identical on every runtime call for that tenan
 
 ## Trends, freshness, diversity
 
-Trends live in **one place**: a `TRENDS / FRESHNESS / CALENDAR` section that Sonnet 4.6 bakes into the per-tenant system prompt during onboarding from its training knowledge (cutoff Jan 2026 — full 2026 Indian festival calendar). That section names real festivals with rough dates, real regional cultural moments, and industry-specific seasonal beats — concrete language the runtime model can lean on.
-
-The runtime user message carries only two rolling pieces:
+**All trend / freshness rules live inside the per-tenant system prompt**, baked in once at onboarding. The runtime user message carries only two rolling pieces:
 
 1. **`today`** — actual date.
-2. **`recent_idea_titles`** — the last 8 successful `idea_title`s for this tenant.
+2. **`recent_idea_titles`** — the last 12 successful `idea_title`s for this tenant.
 
-The user-turn instructs Sonnet that **roughly 6-7 of every 10 generations should lean into a festival or cultural moment from the system prompt's calendar that's near today's date; the remaining 3-4 can be evergreen brand content**. The recent-titles list steers the model away from repeats and acts as a control signal for which side of the 6/4 split today should fall on (if the last 3 were evergreen, lean trend; if the last 3 were trend, do an evergreen).
+The system prompt is responsible for everything else — festival calendar, seasonal beats, business-relevance rules, the trend / evergreen ratio. Runtime stays minimal so the bytes after the cached system block are as small as possible (cheap, and trends are an onboarding concern).
 
-The 6-7 / 3-4 ratio is also written into the per-tenant system prompt during onboarding, so it survives even if a runtime call somehow loses the user-turn instructions.
+**Phase 2 — richer trend awareness** is parked. Candidates when we revisit:
+- Daily cron + shared `trend_feeds(industry, trends, fetched_at)` so acute trends amortise across all tenants in an industry.
+- `TREND_WINDOW_DAYS` tenant-level knob.
+- Operator-curated trend pool per tenant (an explicit "weekly nudge" field).
 
-**Refresh strategy:** the trend calendar in the system prompt is frozen at onboarding time. Re-onboard the tenant every few months (drop the existing row and submit the form again) to re-run the web searches and pick up newer trends.
+**Refresh strategy today:** the trend awareness inside the system prompt is frozen at onboarding time. Re-onboard the tenant every few months (drop the row, resubmit the form) to refresh it from Claude's then-current training knowledge.
 
 ---
 
