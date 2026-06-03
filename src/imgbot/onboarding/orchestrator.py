@@ -67,9 +67,16 @@ def onboard_from_input(
     ]
 
     # ---- build per-tenant system prompt ----------------------------------- #
+    # We deliberately strip `business.tagline` and `brand.*` strings (header
+    # text, social handle, footer contact lines) before sending to Claude —
+    # those are composited-only by the brand pipeline and should NEVER appear
+    # inside the AI-rendered image. Withholding them from Claude entirely is
+    # the strongest guardrail against leakage; the meta-prompt's "do not
+    # render" rule alone wasn't always being followed.
+    business_for_claude = meta.business.model_dump()
+    business_for_claude.pop("tagline", None)
     meta_for_claude = {
-        "business": meta.business.model_dump(),
-        "brand": meta.brand.model_dump(),
+        "business": business_for_claude,
         "theme": meta.theme.model_dump(),
         "plan_quota": meta.plan_quota,
         "notes": meta.notes,

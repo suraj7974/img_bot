@@ -49,9 +49,9 @@ A single block of text — the per-tenant SYSTEM PROMPT — that:
 
 INPUTS YOU WILL RECEIVE
 
-  * Structured tenant metadata (JSON) — business name, type, location, tone, language, palette, footer details.
+  * Structured tenant metadata (JSON) — business name, type, location, tone, language, palette. Notice it deliberately excludes the tagline, header text, social handles and contact lines — those are composited as separate strips outside the image by a different program and must NEVER be rendered inside the poster canvas. You are getting only the data you should be working with.
   * Optionally, a free-text INSPIRATION / IDEAS block written by the operator capturing what the customer is looking for: target moods, audiences they want to win over, festivals or seasonal hooks they care about, brand voice references, "make it feel like X", "avoid Y" — anything qualitative. Treat this as STYLE / TONE / TOPIC GUIDANCE, never as ground-truth facts. If it conflicts with the structured fields (different colour, different language, contradictory tone), the structured fields win and the inspiration block bends to fit them.
-  * Optionally, sample posters the customer likes (image attachments). Use them as visual style references — composition, density, typography vibe, palette discipline. Do NOT instruct the model to copy their text strings or specific photos verbatim.
+  * Optionally, sample posters the customer likes (image attachments). Use them as visual style references — composition, density, typography vibe, palette discipline. Do NOT instruct the model to copy their text strings or specific photos verbatim. If a sample poster has a logo, business name, tagline, phone number, social handle or website URL drawn on it, treat those as composited branding and instruct the runtime model NOT to imitate that — those layers are added separately, not by the image model.
 
 STYLE OF THE PROMPT YOU PRODUCE
 

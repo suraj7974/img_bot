@@ -55,6 +55,67 @@ def info(phone: str = typer.Argument(..., help="Tenant phone (E.164 or raw).")) 
         typer.echo(f"  {p.created_at:%Y-%m-%d %H:%M}  [{p.status}]  {p.idea_title}")
 
 
+@tenants_app.command("update-brand")
+def update_brand(
+    phone: str = typer.Argument(..., help="Tenant phone (E.164 or raw)."),
+    dept_name: Optional[str] = typer.Option(
+        None, "--dept-name",
+        help="Centred header text. Pass '' to clear (logos-only header band).",
+    ),
+    social_handle: Optional[str] = typer.Option(
+        None, "--social-handle",
+        help="Footer-left handle (next to social glyphs). Pass '' to clear.",
+    ),
+    footer_phone: Optional[str] = typer.Option(
+        None, "--footer-phone",
+        help="Footer right-stack phone line. Pass '' to clear.",
+    ),
+    footer_email: Optional[str] = typer.Option(
+        None, "--footer-email",
+        help="Footer right-stack email line. Pass '' to clear.",
+    ),
+    footer_website: Optional[str] = typer.Option(
+        None, "--footer-website",
+        help="Footer right-stack website line. Pass '' to clear.",
+    ),
+) -> None:
+    """Patch a tenant's COMPOSITED brand strings — header text + footer lines.
+
+    No re-onboarding required — these strings drive the Python compositor only,
+    not the AI image content. Run with no flags to view the current values.
+    """
+    store = TenantStore()
+    tenant = store.get_by_phone(phone)
+    if tenant is None:
+        typer.echo(f"no tenant for {phone}", err=True)
+        raise typer.Exit(1)
+
+    # Omitted flag (None) → leave field alone. Empty string → null it out.
+    raw = {
+        "dept_name":      dept_name,
+        "social_handle":  social_handle,
+        "footer_phone":   footer_phone,
+        "footer_email":   footer_email,
+        "footer_website": footer_website,
+    }
+    changes = {k: (v if v != "" else None) for k, v in raw.items() if v is not None}
+
+    if not changes:
+        typer.echo(f"current brand strings for {tenant.phone}:")
+        typer.echo(f"  dept_name      : {tenant.brand.dept_name!r}")
+        typer.echo(f"  social_handle  : {tenant.brand.social_handle!r}")
+        typer.echo(f"  footer_phone   : {tenant.brand.footer_phone!r}")
+        typer.echo(f"  footer_email   : {tenant.brand.footer_email!r}")
+        typer.echo(f"  footer_website : {tenant.brand.footer_website!r}")
+        typer.echo("\npass --dept-name 'X' to set, --dept-name '' to clear (same for the others).")
+        return
+
+    updated = store.update_brand(tenant.id, changes)
+    typer.echo(f"✓ patched {len(changes)} field(s) for {updated.phone}")
+    for k, v in changes.items():
+        typer.echo(f"  {k:<15} → {v!r}")
+
+
 @tenants_app.command("set-quota")
 def set_quota(
     phone: str = typer.Argument(..., help="Tenant phone."),

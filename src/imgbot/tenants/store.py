@@ -17,6 +17,7 @@ from supabase import Client, create_client
 
 from imgbot import config
 from imgbot.tenants.schema import (
+    BrandIdentity,
     PosterRecord,
     Tenant,
     TenantMetaInput,
@@ -111,6 +112,29 @@ class TenantStore:
         row = (
             self._t("tenants")
             .update({"quota_used": new_used})
+            .eq("id", str(tenant_id))
+            .execute()
+            .data[0]
+        )
+        return Tenant.model_validate(row)
+
+    def update_brand(self, tenant_id: UUID | str, changes: dict) -> Tenant:
+        """Patch specific brand jsonb fields in-place.
+
+        Only the keys present in `changes` are touched; everything else on the
+        existing `brand` row stays. The merged dict is round-tripped through
+        `BrandIdentity` so invalid shapes fail loudly before they hit the DB.
+        """
+        if not changes:
+            raise ValueError("update_brand called with nothing to change")
+        current = self.get_by_id(tenant_id)
+        if current is None:
+            raise LookupError(f"tenant not found: {tenant_id}")
+        merged = {**current.brand.model_dump(), **changes}
+        validated = BrandIdentity.model_validate(merged).model_dump()
+        row = (
+            self._t("tenants")
+            .update({"brand": validated})
             .eq("id", str(tenant_id))
             .execute()
             .data[0]

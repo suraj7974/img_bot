@@ -152,7 +152,7 @@ def _append_footer(base: Image.Image, theme: Theme, brand: BrandIdentity) -> Ima
     cy = top + band_h // 2
 
     # ---- Left: social glyphs + handle (if any) ----
-    icon = int(band_h * 0.42)
+    icon = int(band_h * 0.32)
     gap = int(icon * 0.32)
     iy = cy - icon // 2
     x = pad
@@ -161,7 +161,7 @@ def _append_footer(base: Image.Image, theme: Theme, brand: BrandIdentity) -> Ima
     _draw_x(d, x, iy, icon, color);          x += icon + int(gap * 1.4)
 
     if brand.social_handle:
-        handle_font = _latin_font(int(band_h * 0.30))
+        handle_font = _latin_font(int(band_h * 0.22))
         hb = d.textbbox((0, 0), brand.social_handle, font=handle_font)
         d.text((x, cy - (hb[3] - hb[1]) / 2 - hb[1]), brand.social_handle,
                font=handle_font, fill=color)
@@ -169,8 +169,8 @@ def _append_footer(base: Image.Image, theme: Theme, brand: BrandIdentity) -> Ima
     # ---- Right: stacked contact lines (skip blank ones) ----
     contact_lines = [s for s in (brand.footer_phone, brand.footer_email, brand.footer_website) if s]
     if contact_lines:
-        contact_font = _latin_font(int(band_h * 0.18))
-        line_gap = int(band_h * 0.06)
+        contact_font = _latin_font(int(band_h * 0.13))
+        line_gap = int(band_h * 0.05)
         bboxes = [d.textbbox((0, 0), s, font=contact_font) for s in contact_lines]
         heights = [b[3] - b[1] for b in bboxes]
         block_h = sum(heights) + line_gap * (len(contact_lines) - 1)
