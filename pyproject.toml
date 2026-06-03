@@ -1,0 +1,27 @@
+[project]
+name = "imgbot"
+version = "0.1.0"
+description = "Multi-tenant AI poster pipeline (Claude + Gemini + WhatsApp)"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.40",
+    "fastapi>=0.110",
+    "google-genai>=2.6",
+    "pillow>=11",
+    "pydantic>=2.10",
+    "python-dotenv>=1.0",
+    "python-multipart>=0.0.9",
+    "supabase>=2.9",
+    "typer>=0.12",
+    "uvicorn[standard]>=0.27",
+]
+
+[project.scripts]
+imgbot = "imgbot.cli.__main__:app"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

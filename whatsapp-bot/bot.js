@@ -1,13 +1,21 @@
 /**
- * WhatsApp poster bot
- * ===================
+ * WhatsApp poster bot (multi-tenant)
+ * ==================================
  *
- * Flow (groups only):
- *   1. A user mentions the bot in a group with the words "generate poster".
- *   2. The bot replies "send prompt".
- *   3. The user replies to that "send prompt" message with the actual prompt.
- *   4. The bot runs `python3 main.py "<prompt>"`, sends each generated poster
- *      back as a reply, then deletes the local output files for that run.
+ * Flow (DMs only):
+ *   1. A paying tenant DMs the bot with a message starting "new poster"
+ *      (case-insensitive). Group messages are ignored.
+ *   2. The bot resolves the sender's phone to E.164 and spawns
+ *      `python -m imgbot generate --phone <e164>` against the repo root.
+ *   3. The Python CLI produces one branded poster, prints a legacy
+ *      `✓ Final poster -> <abs path>` line, then a single JSON line with
+ *      `{image_path, idea_title, quota_remaining}`.
+ *   4. The bot sends the file back as a reply, using `idea_title` as the
+ *      caption. Local files are cleaned up after delivery.
+ *
+ * Error handling:
+ *   - The CLI uses exit code 2 (not onboarded) and 3 (quota exceeded), with a
+ *     JSON error line on stderr. We translate those to user-friendly replies.
  */
 
 const fs = require("fs");
@@ -20,20 +28,23 @@ const { Client, LocalAuth, MessageMedia } = require("whatsapp-web.js");
 // Config
 // ---------------------------------------------------------------------------
 const REPO_ROOT = path.resolve(__dirname, "..");
-const PYTHON = process.env.PYTHON_BIN || "python3";
-const TRIGGER = "generate poster";
-const ASK_PROMPT_REPLY = "send prompt";
+const PYTHON = process.env.PYTHON_BIN || path.join(REPO_ROOT, ".venv/bin/python");
+const TRIGGER = "new poster";
 const MAX_TRACKED = 500;
 
-// IDs of "send prompt" messages we've sent — a reply quoting one is treated
-// as the actual prompt.
-const askPromptIds = new Set();
-// IDs of messages we've already handled (dedupes message + message_create).
+// Dedupe message + message_create.
 const seenIds = new Set();
 
 function rememberId(set, id) {
   set.add(id);
   if (set.size > MAX_TRACKED) set.delete(set.values().next().value);
+}
+
+function senderPhone(message) {
+  // whatsapp-web.js returns IDs like "917974387273@c.us". Strip suffix and
+  // re-add the leading + for E.164.
+  const raw = (message.from || "").split("@")[0].replace(/\D+/g, "");
+  return raw ? `+${raw}` : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -52,8 +63,6 @@ const client = new Client({
   },
 });
 
-let botId = null;
-
 client.on("qr", (qr) => {
   console.log("\nScan this QR in WhatsApp → Linked devices:\n");
   qrcode.generate(qr, { small: true });
@@ -62,10 +71,9 @@ client.on("qr", (qr) => {
 client.on("authenticated", () => console.log("authenticated"));
 client.on("auth_failure", (m) => console.error("auth failure:", m));
 client.on("disconnected", (r) => console.error("disconnected:", r));
-
 client.on("ready", () => {
-  botId = client.info && client.info.wid && client.info.wid._serialized;
-  console.log("ready — bot wid:", botId);
+  const wid = client.info && client.info.wid && client.info.wid._serialized;
+  console.log("ready — bot wid:", wid);
 });
 
 // ---------------------------------------------------------------------------
@@ -84,119 +92,122 @@ async function handleMessage(message) {
       rememberId(seenIds, msgId);
     }
 
-    // We only care about text messages — skip stickers, audio, media, etc.
     if (message.type !== "chat") return;
-
     const chat = await message.getChat();
-    if (!chat.isGroup) return;
+    if (chat.isGroup) return; // DMs only
 
-    // Case A: reply quoting one of our "send prompt" messages → the prompt.
-    if (message.hasQuotedMsg) {
-      const quoted = await message.getQuotedMessage();
-      if (askPromptIds.has(quoted.id._serialized)) {
-        await handlePrompt(message, chat);
-        return;
-      }
+    const body = (message.body || "").trim();
+    if (!body.toLowerCase().startsWith(TRIGGER)) return;
+
+    const phone = senderPhone(message);
+    if (!phone) {
+      await message.reply("⚠️ Could not read your phone number from this chat.");
+      return;
     }
 
-    // Case B: start trigger — bot mentioned + "generate poster".
-    if (!(message.body || "").toLowerCase().includes(TRIGGER)) return;
-    const mentions = await message.getMentions();
-    if (!mentions.some((c) => c.isMe)) return;
+    console.log("trigger →", phone);
+    await message.reply("⏳ Generating your poster…");
+    chat.sendStateTyping().catch(() => {});
 
-    const reply = await message.reply(ASK_PROMPT_REPLY);
-    rememberId(askPromptIds, reply.id._serialized);
-    console.log("trigger →", chat.name || chat.id._serialized);
+    let result;
+    try {
+      result = await runPipeline(phone);
+    } catch (err) {
+      console.error("pipeline failed:", err.message);
+      await message.reply(replyForError(err));
+      return;
+    }
+
+    try {
+      const media = MessageMedia.fromFilePath(result.image_path);
+      const caption =
+        `✅ ${result.idea_title}` +
+        (typeof result.quota_remaining === "number"
+          ? `\n(${result.quota_remaining} posters left this period)`
+          : "");
+      await message.reply(media, undefined, { caption });
+      cleanupRunFiles(result);
+    } catch (err) {
+      console.error("send error:", err.message);
+      await message.reply(`❌ Failed to send poster: ${err.message}`);
+    }
   } catch (err) {
     console.error("handler error:", err.message);
   }
 }
 
-// ---------------------------------------------------------------------------
-// Prompt → poster
-// ---------------------------------------------------------------------------
-async function handlePrompt(message, chat) {
-  const prompt = (message.body || "").trim();
-  if (!prompt) {
-    await message.reply("⚠️ Empty prompt. Reply to *send prompt* with your topic.");
-    return;
+function replyForError(err) {
+  if (err.errorKind === "not_onboarded") {
+    return "⚠️ You're not onboarded yet. Please contact your admin to set up your account.";
   }
-  console.log("prompt:", truncate(prompt, 120));
-
-  await message.reply("⏳ Generating your posters…");
-  chat.sendStateTyping().catch(() => {});
-
-  let finalPaths;
-  try {
-    finalPaths = await runPipeline(prompt);
-  } catch (err) {
-    console.error("pipeline failed:", err.message);
-    await message.reply("❌ Generation failed:\n" + truncate(String(err.message), 500));
-    return;
+  if (err.errorKind === "quota_exceeded") {
+    return "⚠️ You've used up this period's quota. Reach out to your admin to top up.";
   }
-
-  const total = finalPaths.length;
-  const sent = [];
-  for (let i = 0; i < total; i++) {
-    const p = finalPaths[i];
-    try {
-      const media = MessageMedia.fromFilePath(p);
-      const caption = total === 1 ? "✅ Here's your poster." : `✅ Variant ${i + 1}/${total}`;
-      await message.reply(media, undefined, { caption });
-      sent.push(p);
-    } catch (err) {
-      console.error("send error", p, err.message);
-      await message.reply(`❌ Failed to send variant ${i + 1}: ${err.message}`);
-    }
-  }
-  cleanupRunFiles(sent);
-  console.log(`sent ${sent.length}/${total} posters, files cleaned`);
+  return "❌ Generation failed:\n" + truncate(String(err.message), 500);
 }
 
-/**
- * Run `python3 main.py "<prompt>"` and return the list of generated `.final.png`
- * paths scraped from stdout (filesystem-verified).
- */
-function runPipeline(prompt) {
+// ---------------------------------------------------------------------------
+// Run the Python CLI
+// ---------------------------------------------------------------------------
+function runPipeline(phone) {
   return new Promise((resolve, reject) => {
-    const child = spawn(PYTHON, ["main.py", prompt], { cwd: REPO_ROOT });
+    const child = spawn(
+      PYTHON,
+      ["-m", "imgbot", "generate", "--phone", phone],
+      { cwd: REPO_ROOT }
+    );
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (d) => (stdout += d.toString()));
     child.stderr.on("data", (d) => (stderr += d.toString()));
     child.on("error", reject);
     child.on("close", (code) => {
+      // The CLI surfaces structured errors on stderr as a JSON line + non-zero
+      // exit codes 2 (not onboarded) / 3 (quota exceeded). Pick up the kind so
+      // the user gets a clean message rather than a stack trace.
+      const errLine = lastJsonLine(stderr);
+      if (errLine && errLine.error) {
+        const e = new Error(errLine.message || errLine.error);
+        e.errorKind = errLine.error;
+        return reject(e);
+      }
       if (code !== 0) {
-        return reject(new Error(`main.py exited ${code}: ${truncate(stderr || stdout, 800)}`));
+        return reject(new Error(`imgbot generate exited ${code}: ${truncate(stderr || stdout, 800)}`));
       }
-      const seen = new Set();
-      const paths = [];
-      const re = /(\S+\.final\.png)/g;
-      let m;
-      while ((m = re.exec(stdout)) !== null) {
-        const abs = path.resolve(REPO_ROOT, m[1]);
-        if (seen.has(abs) || !fs.existsSync(abs)) continue;
-        seen.add(abs);
-        paths.push(abs);
+
+      // Success — find the JSON payload line and the legacy path line.
+      const payload = lastJsonLine(stdout);
+      if (payload && payload.image_path && fs.existsSync(payload.image_path)) {
+        return resolve(payload);
       }
-      if (paths.length === 0) {
-        return reject(new Error("no .final.png paths found in main.py output"));
+      // Fallback to the legacy `Final poster -> <path>` line.
+      const m = /✓ Final poster -> (\S+)/.exec(stdout);
+      if (m && fs.existsSync(m[1])) {
+        return resolve({ image_path: m[1], idea_title: "" });
       }
-      resolve(paths);
+      reject(new Error("no final poster path found in CLI output"));
     });
   });
 }
 
-/**
- * After WhatsApp confirms the send, drop the local copies for that run:
- * the .final.png, its .raw.png twin, and the .prompt.txt sibling. Best-effort.
- */
-function cleanupRunFiles(finalPaths) {
-  for (const p of finalPaths) {
-    const siblings = [p, p.replace(/\.final\.png$/, ".raw.png"), p.replace(/\.final\.png$/, ".prompt.txt")];
-    for (const s of siblings) {
-      fs.promises.unlink(s).catch(() => {});
+function lastJsonLine(text) {
+  const lines = text.split(/\r?\n/).reverse();
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t.startsWith("{")) continue;
+    try {
+      return JSON.parse(t);
+    } catch (_) {
+      // not valid JSON — keep scanning
     }
+  }
+  return null;
+}
+
+function cleanupRunFiles(result) {
+  const paths = [result.image_path, result.raw_path].filter(Boolean);
+  for (const p of paths) {
+    fs.promises.unlink(p).catch(() => {});
   }
 }
 

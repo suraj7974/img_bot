@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>imgbot — onboarding</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .field { @apply mb-4; }
+  </style>
+</head>
+<body class="bg-stone-50 text-stone-900">
+
+<div class="max-w-3xl mx-auto px-6 py-12">
+  <header class="mb-10">
+    <h1 class="text-3xl font-bold tracking-tight">Onboard a new tenant</h1>
+    <p class="text-stone-600 mt-2">
+      Fill in the business + brand profile, drop a logo, optionally add some sample posters they like
+      and an ideas / inspiration note. Claude (Opus 4.8) will build a tailored system prompt; subsequent
+      runtime generations use Sonnet 4.6 with that prompt cached.
+    </p>
+  </header>
+
+  <form id="onboard-form" class="space-y-8">
+
+    <!-- BUSINESS -->
+    <fieldset class="bg-white rounded-2xl shadow-sm p-6 space-y-4">
+      <legend class="text-lg font-semibold px-2">Business</legend>
+
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium">Phone (WhatsApp, E.164)</label>
+          <input name="phone" type="text" placeholder="+917974387273" required
+                 class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2">
+        </div>
+        <div>
+          <label class="block text-sm font-medium">Plan quota / month</label>
+          <input name="plan_quota" type="number" value="10" min="1" required
+                 class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2">
+        </div>
+        <div class="col-span-2">
+          <label class="block text-sm font-medium">Business name</label>
+          <input name="biz_name" type="text" required
+                 class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2">
+        </div>
+        <div class="col-span-2">
+          <label class="block text-sm font-medium">Business type</label>
+          <input name="biz_type" type="text" placeholder="event management, sweet shop, coaching institute…" required
+                 class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2">
+        </div>
+        <div>
+          <label class="block text-sm font-medium">Location</label>
+          <input name="biz_location" type="text" placeholder="Mahasamund, Chhattisgarh"
+                 class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2">
+        </div>
+        <div>
+          <label class="block text-sm font-medium">Language</label>
+          <select name="biz_language"
+                  class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2 bg-white">
+            <option value="en">English</option>
+            <option value="hi">Hindi (Devanagari)</option>
+          </select>
+        </div>
+        <div class="col-span-2">
+          <label class="block text-sm font-medium">Tagline</label>
+          <input name="biz_tagline" type="text"
+                 class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2">
+        </div>
+        <div class="col-span-2">
+          <label class="block text-sm font-medium">Target audience</label>
+          <input name="biz_audience" type="text" placeholder="couples planning weddings, SMB owners, …"
+                 class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2">
+        </div>
+        <div class="col-span-2">
+          <label class="block text-sm font-medium">Tone</label>
+          <input name="biz_tone" type="text" placeholder="luxury / royal / festive / official / playful"
+                 class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2">
+        </div>
+        <div class="col-span-2">
+          <label class="block text-sm font-medium">Internal notes</label>
+          <textarea name="biz_notes" rows="2"
+                    class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2"></textarea>
+        </div>
+      </div>
+    </fieldset>
+
+    <!-- BRAND -->
+    <fieldset class="bg-white rounded-2xl shadow-sm p-6 space-y-4">
+      <legend class="text-lg font-semibold px-2">Brand strings (composited into header / footer)</legend>
+
+      <div class="grid grid-cols-2 gap-4">
+        <div class="col-span-2">
+          <label class="block text-sm font-medium">Header text (centre of the top band)</label>
+          <input name="brand_dept" type="text" placeholder="Creation with perfection" required
+                 class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2">
+        </div>
+        <div class="col-span-2">
+          <label class="block text-sm font-medium">Social handle (footer left)</label>
+          <input name="brand_handle" type="text" placeholder="@baster.event"
+                 class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2">
+        </div>
+        <div>
+          <label class="block text-sm font-medium">Footer phone</label>
+          <input name="brand_phone" type="text" placeholder="MO. 7974387273"
+                 class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2">
+        </div>
+        <div>
+          <label class="block text-sm font-medium">Footer email</label>
+          <input name="brand_email" type="text" placeholder="hello@example.com"
+                 class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2">
+        </div>
+        <div class="col-span-2">
+          <label class="block text-sm font-medium">Footer website</label>
+          <input name="brand_website" type="text" placeholder="www.example.com"
+                 class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2">
+        </div>
+      </div>
+    </fieldset>
+
+    <!-- THEME -->
+    <fieldset class="bg-white rounded-2xl shadow-sm p-6 space-y-4">
+      <legend class="text-lg font-semibold px-2">Theme (header + footer band colours)</legend>
+
+      <div class="grid grid-cols-3 gap-4">
+        <div>
+          <label class="block text-sm font-medium">Header / footer BG</label>
+          <input name="theme_bg" type="color" value="#5e1622"
+                 class="mt-1 h-10 w-full rounded-lg border border-stone-300">
+        </div>
+        <div>
+          <label class="block text-sm font-medium">Accent line</label>
+          <input name="theme_accent" type="color" value="#c8a24a"
+                 class="mt-1 h-10 w-full rounded-lg border border-stone-300">
+        </div>
+        <div>
+          <label class="block text-sm font-medium">Text on bands</label>
+          <input name="theme_text" type="color" value="#f6efe1"
+                 class="mt-1 h-10 w-full rounded-lg border border-stone-300">
+        </div>
+      </div>
+    </fieldset>
+
+    <!-- ASSETS + IDEAS -->
+    <fieldset class="bg-white rounded-2xl shadow-sm p-6 space-y-4">
+      <legend class="text-lg font-semibold px-2">Logo, samples, inspiration</legend>
+
+      <div>
+        <label class="block text-sm font-medium">Logo (PNG with transparent BG preferred) — required</label>
+        <input name="logo" type="file" accept="image/png,image/jpeg,image/webp" required
+               class="mt-1 block w-full text-sm">
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium">Sample posters the customer likes (optional, multi-select)</label>
+        <input name="samples" type="file" accept="image/*" multiple
+               class="mt-1 block w-full text-sm">
+        <p class="text-xs text-stone-500 mt-1">Claude looks at these for style cues — composition, density, palette discipline.</p>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium">Inspiration / ideas (optional)</label>
+        <textarea name="inspiration_ideas" rows="6"
+                  placeholder="What kind of posters does this customer want? Style notes, audience moodboard, festivals to lean into, brand voice cues, things to avoid…"
+                  class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2"></textarea>
+        <p class="text-xs text-stone-500 mt-1">Free-form. Claude treats this as style guidance, not facts.</p>
+      </div>
+    </fieldset>
+
+    <button type="submit"
+            class="w-full rounded-2xl bg-stone-900 text-white px-6 py-3 text-base font-semibold hover:bg-stone-800 disabled:opacity-50">
+      Onboard tenant
+    </button>
+  </form>
+
+  <div id="result" class="hidden mt-10 bg-white rounded-2xl shadow-sm p-6"></div>
+
+</div>
+
+<script>
+const form = document.getElementById("onboard-form");
+const result = document.getElementById("result");
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = form.querySelector("button[type=submit]");
+  btn.disabled = true;
+  btn.textContent = "Building system prompt with Claude…";
+  result.classList.add("hidden");
+
+  const fd = new FormData();
+  fd.append("phone", form.phone.value);
+  fd.append("plan_quota", form.plan_quota.value);
+  fd.append("notes", form.biz_notes.value);
+  fd.append("inspiration_ideas", form.inspiration_ideas.value);
+
+  fd.append("business", JSON.stringify({
+    name: form.biz_name.value,
+    type: form.biz_type.value,
+    location: form.biz_location.value || null,
+    tagline: form.biz_tagline.value || null,
+    language: form.biz_language.value,
+    audience: form.biz_audience.value || null,
+    tone: form.biz_tone.value || null,
+    notes: form.biz_notes.value || null,
+  }));
+
+  fd.append("brand", JSON.stringify({
+    dept_name: form.brand_dept.value,
+    social_handle: form.brand_handle.value || null,
+    footer_phone: form.brand_phone.value || null,
+    footer_email: form.brand_email.value || null,
+    footer_website: form.brand_website.value || null,
+  }));
+
+  fd.append("theme", JSON.stringify({
+    header_bg: form.theme_bg.value,
+    header_accent: form.theme_accent.value,
+    header_text: form.theme_text.value,
+    footer_bg: form.theme_bg.value,
+    footer_top_line: form.theme_accent.value,
+    footer_text: form.theme_text.value,
+    language: form.biz_language.value,
+  }));
+
+  fd.append("logo", form.logo.files[0]);
+  for (const f of form.samples.files) fd.append("samples", f);
+
+  try {
+    const resp = await fetch("/api/onboard", { method: "POST", body: fd });
+    const data = await resp.json();
+    if (!resp.ok) {
+      result.innerHTML = `
+        <h2 class="text-lg font-semibold text-red-700">Onboarding failed</h2>
+        <p class="text-sm text-stone-700 mt-2 whitespace-pre-wrap">${escapeHtml(JSON.stringify(data, null, 2))}</p>`;
+    } else {
+      result.innerHTML = `
+        <h2 class="text-lg font-semibold text-green-700">✓ Tenant onboarded</h2>
+        <dl class="mt-3 grid grid-cols-2 gap-y-1 text-sm">
+          <dt class="text-stone-500">tenant id</dt><dd class="font-mono">${data.tenant_id}</dd>
+          <dt class="text-stone-500">phone</dt><dd class="font-mono">${data.phone}</dd>
+          <dt class="text-stone-500">business</dt><dd>${escapeHtml(data.business_name)}</dd>
+          <dt class="text-stone-500">plan quota</dt><dd>${data.plan_quota}/month</dd>
+          <dt class="text-stone-500">logo</dt><dd class="font-mono text-xs">${escapeHtml(data.logo_path)}</dd>
+          <dt class="text-stone-500">sample posters</dt><dd>${data.sample_count}</dd>
+          <dt class="text-stone-500">system prompt</dt><dd>${data.system_prompt_chars} chars</dd>
+        </dl>
+        <h3 class="mt-4 text-sm font-semibold text-stone-700">System prompt preview</h3>
+        <pre class="mt-1 bg-stone-100 rounded-lg p-3 text-xs whitespace-pre-wrap">${escapeHtml(data.system_prompt_preview)}…</pre>`;
+    }
+  } catch (err) {
+    result.innerHTML = `<h2 class="text-lg font-semibold text-red-700">Network error</h2><p>${escapeHtml(err.message)}</p>`;
+  }
+  result.classList.remove("hidden");
+  btn.disabled = false;
+  btn.textContent = "Onboard tenant";
+});
+
+function escapeHtml(s) {
+  return (s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+}
+</script>
+
+</body>
+</html>
