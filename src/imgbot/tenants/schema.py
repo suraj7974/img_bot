@@ -30,34 +30,92 @@ def hex_to_rgb(h: str) -> tuple[int, int, int]:
 
 
 # --------------------------------------------------------------------------- #
-# Phone normalisation — accept "+91...", "91...@c.us", "+91 7974...", etc.
-# Store / compare as canonical "+<digits>".
+# Phone & chat-ID normalisation.
+#
+# `phone` is the admin-typed canonical identifier (E.164 like "+917974387273").
+# `chat_id` is the opaque WhatsApp JID (`<digits>@c.us` or `<digits>@lid`) that
+# the bot auto-resolves on first contact via `client.getNumberId(phone)`.
+#
+# Both are stored on the tenant row. Lookups prefer chat_id (exact match
+# against `message.from`) and fall back to phone.
 # --------------------------------------------------------------------------- #
-_PHONE_DIGITS = re.compile(r"\D+")
+_NON_DIGITS = re.compile(r"\D+")
+_ALLOWED_SERVERS = ("c.us", "lid")
+DEFAULT_COUNTRY_CODE = "91"  # India. If the admin types a bare 10-digit number, prepend +91.
 
 
 def normalize_phone(raw: str) -> str:
-    """Canonicalise any WhatsApp/E.164-ish input into `+<digits>`.
+    """Return canonical E.164 (`+<digits>`).
 
-    Enforces 11-15 digits total — E.164's hard ceiling is 15, and 11 is the
-    practical floor once you include a country code (US +1xxx10digits = 11,
-    India +91xxxxxxxxxx = 12). This catches the common operator typo of
-    omitting the country code (`9876543210` → got 10 digits, missing +91).
+    Accepts:
+      * `+917974387273` — already canonical, used as-is
+      * `917974387273`  — already has country code, just prepends `+`
+      * `7974387273`    — 10-digit Indian mobile, auto-prepended with `+91`
+      * `+91 7974 387 273`, `+91-79743-87273`, etc. — formatting stripped
+
+    Enforces a final length of 11–15 digits (E.164's hard ceiling is 15).
     """
-    if not raw:
+    if raw is None or not str(raw).strip():
         raise ValueError("phone is empty")
-    # Drop the WhatsApp suffix and anything after @, then strip non-digits.
-    head = raw.split("@", 1)[0]
-    digits = _PHONE_DIGITS.sub("", head)
+    raw = str(raw).strip()
+
+    digits = _NON_DIGITS.sub("", raw)
     if not digits:
-        raise ValueError(f"no digits in phone: {raw!r}")
+        raise ValueError(f"phone has no digits: {raw!r}")
+
+    # If admin gave 10 digits (the common Indian mobile shape with no country
+    # code), prepend the default country code. Don't touch anything longer or
+    # starting with `+` — they presumably already know what they're doing.
+    if not raw.startswith("+") and len(digits) == 10:
+        digits = DEFAULT_COUNTRY_CODE + digits
+
     if len(digits) < 11 or len(digits) > 15:
         raise ValueError(
             f"phone has {len(digits)} digits; expected 11-15 (E.164 with country code). "
-            f"For Indian numbers use +91 followed by the 10-digit mobile, "
-            f"e.g. +917974387273. Got {raw!r}."
+            f"For Indian numbers use 10 digits (auto-prefixed +91) or +<country><number>. "
+            f"Got {raw!r}."
         )
     return "+" + digits
+
+
+def normalize_chat_id(raw: str) -> str:
+    """Return a canonical WhatsApp JID (`<digits>@c.us` or `<digits>@lid`).
+
+    Used for the chat_id field (resolved by the bot, not user-typed). Accepts
+    only full JID strings — no bare-phone fallback to keep the two ids clearly
+    distinct in the codebase.
+    """
+    if raw is None or not str(raw).strip():
+        raise ValueError("chat_id is empty")
+    raw = str(raw).strip().lower()
+    if "@" not in raw:
+        raise ValueError(
+            f"chat_id must be a WhatsApp JID like `<digits>@c.us` or "
+            f"`<digits>@lid`; got {raw!r}"
+        )
+    user, _, server = raw.rpartition("@")
+    digits = _NON_DIGITS.sub("", user)
+    if not digits:
+        raise ValueError(f"chat_id has no user digits: {raw!r}")
+    if server not in _ALLOWED_SERVERS:
+        raise ValueError(
+            f"chat_id has unsupported server '@{server}'; expected "
+            f"@c.us or @lid. Got {raw!r}."
+        )
+    return f"{digits}@{server}"
+
+
+def derived_chat_id(phone: str) -> str:
+    """Best-effort `phone -> chat_id` for non-@lid accounts.
+
+    Phone-based WhatsApp users have chat IDs that are literally the phone
+    digits + `@c.us`. We can compute it offline — no API call needed — and use
+    it as the initial value when the bot hasn't yet seen the user. If the
+    account is @lid, `client.getNumberId` on the bot side overwrites this
+    with the real LID on first contact.
+    """
+    phone = normalize_phone(phone)
+    return phone.lstrip("+") + "@c.us"
 
 
 # --------------------------------------------------------------------------- #
@@ -67,7 +125,6 @@ class BusinessInfo(BaseModel):
     name: str
     type: str  # free text, e.g. "event management", "sweet shop", "coaching institute"
     location: Optional[str] = None
-    tagline: Optional[str] = None
     language: Language = "en"
     audience: Optional[str] = None  # who the posters target
     tone: Optional[str] = None      # "luxury", "festive", "official"
@@ -131,7 +188,8 @@ class TenantMetaInput(BaseModel):
 class Tenant(BaseModel):
     """Hydrated tenant row pulled from Supabase."""
     id: UUID
-    phone: str
+    phone: str                          # E.164, admin-typed, canonical identifier
+    chat_id: Optional[str] = None       # WhatsApp JID, auto-resolved by the bot
     business: BusinessInfo
     brand: BrandIdentity
     theme: Theme
@@ -149,6 +207,11 @@ class Tenant(BaseModel):
     @classmethod
     def _phone(cls, v: str) -> str:
         return normalize_phone(v)
+
+    @field_validator("chat_id")
+    @classmethod
+    def _chat_id(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_chat_id(v) if v else None
 
     @property
     def quota_remaining(self) -> int:

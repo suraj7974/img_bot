@@ -20,15 +20,16 @@ def list_tenants() -> None:
         typer.echo("(no tenants yet)")
         return
     for t in rows:
+        chat = t.chat_id or "—"
         typer.echo(
-            f"{t.phone:<16}  {t.business.name:<30}  "
+            f"{t.phone:<16}  {t.business.name:<28}  "
             f"quota {t.quota_used}/{t.plan_quota}  "
-            f"id={t.id}"
+            f"chat={chat:<26}  id={t.id}"
         )
 
 
 @tenants_app.command("info")
-def info(phone: str = typer.Argument(..., help="Tenant phone (E.164 or raw).")) -> None:
+def info(phone: str = typer.Argument(..., help="Tenant phone (10-digit or +<cc><number>).")) -> None:
     """Show one tenant in detail + recent posters."""
     store = TenantStore()
     t = store.get_by_phone(phone)
@@ -38,6 +39,7 @@ def info(phone: str = typer.Argument(..., help="Tenant phone (E.164 or raw).")) 
 
     typer.echo(f"id           : {t.id}")
     typer.echo(f"phone        : {t.phone}")
+    typer.echo(f"chat_id      : {t.chat_id or '— (bot will resolve on first DM)'}")
     typer.echo(f"business     : {t.business.name} — {t.business.type}")
     if t.business.location:
         typer.echo(f"location     : {t.business.location}")
@@ -57,7 +59,7 @@ def info(phone: str = typer.Argument(..., help="Tenant phone (E.164 or raw).")) 
 
 @tenants_app.command("update-brand")
 def update_brand(
-    phone: str = typer.Argument(..., help="Tenant phone (E.164 or raw)."),
+    phone: str = typer.Argument(..., help="Tenant phone."),
     dept_name: Optional[str] = typer.Option(
         None, "--dept-name",
         help="Centred header text. Pass '' to clear (logos-only header band).",
@@ -90,7 +92,6 @@ def update_brand(
         typer.echo(f"no tenant for {phone}", err=True)
         raise typer.Exit(1)
 
-    # Omitted flag (None) → leave field alone. Empty string → null it out.
     raw = {
         "dept_name":      dept_name,
         "social_handle":  social_handle,

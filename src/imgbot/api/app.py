@@ -6,7 +6,7 @@ Two endpoints + a static SPA-ish form page:
   POST /api/onboard     accepts multipart form data, runs the orchestrator,
                         returns the new tenant id + a preview of the generated
                         per-tenant system prompt
-  GET  /api/tenants/{phone}   look-up endpoint (operator sanity check)
+  GET  /api/tenants/{chat_id}   look-up endpoint (operator sanity check)
 
 No auth — run on localhost or behind a private URL (e.g. an ngrok tunnel).
 """
@@ -17,10 +17,10 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from imgbot.onboarding.orchestrator import onboard_from_input
 from imgbot.tenants.schema import (
@@ -47,6 +47,11 @@ def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
 
 
+@app.get("/pending", include_in_schema=False)
+def pending_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "pending.html")
+
+
 # --------------------------------------------------------------------------- #
 # API
 # --------------------------------------------------------------------------- #
@@ -55,7 +60,7 @@ async def api_onboard(
     business: str = Form(..., description="JSON-encoded BusinessInfo"),
     brand: str = Form(..., description="JSON-encoded BrandIdentity"),
     theme: str = Form("{}", description="JSON-encoded Theme (partial OK)"),
-    phone: str = Form(...),
+    phone: str = Form(..., description="Tenant phone (E.164 or 10-digit Indian — auto +91)"),
     plan_quota: int = Form(10),
     notes: Optional[str] = Form(None),
     inspiration_ideas: Optional[str] = Form(None),
@@ -99,6 +104,7 @@ async def api_onboard(
     return JSONResponse({
         "tenant_id": str(t.id),
         "phone": t.phone,
+        "chat_id": t.chat_id,
         "business_name": t.business.name,
         "plan_quota": t.plan_quota,
         "logo_path": result.logo_path,
@@ -116,6 +122,7 @@ def api_get_tenant(phone: str) -> JSONResponse:
     return JSONResponse({
         "id": str(tenant.id),
         "phone": tenant.phone,
+        "chat_id": tenant.chat_id,
         "business_name": tenant.business.name,
         "business_type": tenant.business.type,
         "plan_quota": tenant.plan_quota,
@@ -123,3 +130,33 @@ def api_get_tenant(phone: str) -> JSONResponse:
         "quota_remaining": tenant.quota_remaining,
         "system_prompt_chars": len(tenant.system_prompt),
     })
+
+
+# --------------------------------------------------------------------------- #
+# Pending inbox — chat IDs that DM'd the bot but aren't onboarded yet
+# --------------------------------------------------------------------------- #
+class PendingUpsert(BaseModel):
+    chat_id: str
+    last_message: str = ""
+
+
+@app.post("/api/pending")
+def api_upsert_pending(payload: PendingUpsert = Body(...)) -> JSONResponse:
+    """Called by the WhatsApp bot whenever an unknown chat ID DMs it."""
+    try:
+        TenantStore().upsert_pending(payload.chat_id, payload.last_message)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return JSONResponse({"status": "ok"})
+
+
+@app.get("/api/pending")
+def api_list_pending() -> JSONResponse:
+    rows = TenantStore().list_pending()
+    return JSONResponse({"pending": rows})
+
+
+@app.delete("/api/pending/{chat_id:path}")
+def api_delete_pending(chat_id: str) -> JSONResponse:
+    TenantStore().delete_pending(chat_id)
+    return JSONResponse({"status": "deleted"})

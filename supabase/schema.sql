@@ -40,7 +40,8 @@ alter default privileges in schema img_bot grant all on functions to anon, authe
 -- --------------------------------------------------------------------------
 create table if not exists img_bot.tenants (
   id                  uuid primary key default gen_random_uuid(),
-  phone               text not null unique,              -- E.164, e.g. "+917974387273"
+  phone               text not null,                     -- E.164, e.g. "+917974387273". Admin-typed, canonical identifier.
+  chat_id             text,                              -- WhatsApp JID — `<digits>@c.us` or `<digits>@lid`. Auto-resolved by the bot on first DM. Never user-facing.
   business            jsonb not null,                    -- BusinessInfo
   brand               jsonb not null,                    -- BrandIdentity (dept_name, social_handle, footer_*)
   theme               jsonb not null,                    -- Theme (colours, ratios, language)
@@ -54,6 +55,10 @@ create table if not exists img_bot.tenants (
   created_at          timestamptz not null default now(),
   updated_at          timestamptz not null default now()
 );
+
+create unique index if not exists tenants_phone_key on img_bot.tenants (phone);
+create unique index if not exists tenants_chat_id_key
+  on img_bot.tenants (chat_id) where chat_id is not null;
 
 -- Idempotent cleanup for deployments that had the earlier short-lived
 -- `trends_context` column. Trend awareness is now baked into the system
@@ -92,10 +97,26 @@ create table if not exists img_bot.posters (
 create index if not exists posters_tenant_created_idx
   on img_bot.posters (tenant_id, created_at desc);
 
+-- --------------------------------------------------------------------------
+-- pending_tenants — chat IDs that DM'd the bot but aren't onboarded yet.
+-- Used as a self-service "inbox" so the admin can click-to-onboard without
+-- having to dig through bot terminal logs.
+-- --------------------------------------------------------------------------
+create table if not exists img_bot.pending_tenants (
+  chat_id        text primary key,
+  last_message   text,
+  message_count  integer not null default 1,
+  first_seen_at  timestamptz not null default now(),
+  last_seen_at   timestamptz not null default now()
+);
+
+create index if not exists pending_tenants_last_seen_idx
+  on img_bot.pending_tenants (last_seen_at desc);
+
 -- Re-grant explicitly on the tables/functions we just created so this file is
 -- safe to re-apply on an existing schema even if default privileges were not
 -- in place when those objects were originally created.
-grant all on img_bot.tenants, img_bot.posters
+grant all on img_bot.tenants, img_bot.posters, img_bot.pending_tenants
   to anon, authenticated, service_role;
 grant execute on function img_bot.touch_updated_at()
   to anon, authenticated, service_role;
