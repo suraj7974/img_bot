@@ -64,24 +64,50 @@ def _load_logo(logo_bytes: bytes, remove_white_bg: bool = False) -> Image.Image:
 
 
 # --------------------------------------------------------------------------- #
-# Header overlay — logo (and optional name) pasted at top-centre of image
+# Header overlay — logo inside a backdrop pill, top-centre of image
 # --------------------------------------------------------------------------- #
 def _overlay_header(base: Image.Image, theme: Theme, brand: BrandIdentity,
                     logo: Image.Image) -> None:
-    """In-place: paste the tenant logo at top-centre of `base`.
+    """In-place: paste the tenant logo at top-centre of `base`, inside a small
+    rounded backdrop pill matching the footer pill.
 
-    The logo's own alpha channel handles blending with whatever the AI
-    rendered behind it. Optional `dept_name` text appears below the logo
-    with a stroked outline so it stays legible over busy backgrounds.
+    Whatever the AI rendered behind the logo zone (decorative badges,
+    headlines, ornament panels) is fully covered by the opaque pill. The pill
+    itself stays subtly translucent so the image around it still feels
+    integrated, not strip-pasted-on.
     """
     W, H = base.size
 
-    # Logo ~ 10% of image height — visible without dominating.
-    target_h = max(48, int(H * 0.10))
+    # Logo ~ 9% of image height — slightly smaller now that we add a pill around it.
+    target_h = max(48, int(H * 0.09))
     target_w = int(logo.width * target_h / logo.height)
     logo_scaled = logo.resize((target_w, target_h), Image.LANCZOS)
-    lx = (W - target_w) // 2
-    ly = int(H * 0.025)
+
+    # Backdrop pill geometry — wraps the logo with breathing room.
+    pad_x = max(14, int(target_h * 0.28))
+    pad_y = max(10, int(target_h * 0.18))
+    pill_w = target_w + 2 * pad_x
+    pill_h = target_h + 2 * pad_y
+    pill_x = (W - pill_w) // 2
+    pill_y = int(H * 0.025)
+
+    color_bg = hex_to_rgb(theme.header_bg)
+    color_accent = hex_to_rgb(theme.header_accent)
+
+    overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    od = ImageDraw.Draw(overlay)
+    od.rounded_rectangle(
+        [pill_x, pill_y, pill_x + pill_w, pill_y + pill_h],
+        radius=pill_h // 2,
+        fill=color_bg + (240,),
+        outline=color_accent + (255,),
+        width=max(1, int(H * 0.0018)),
+    )
+    base.alpha_composite(overlay)
+
+    # Centre the logo inside the pill.
+    lx = pill_x + (pill_w - target_w) // 2
+    ly = pill_y + (pill_h - target_h) // 2
     base.paste(logo_scaled, (lx, ly), logo_scaled)
 
     if brand.dept_name and brand.dept_name.strip():
@@ -90,7 +116,7 @@ def _overlay_header(base: Image.Image, theme: Theme, brand: BrandIdentity,
         nb = d.textbbox((0, 0), brand.dept_name, font=name_font)
         nw = nb[2] - nb[0]
         tx = (W - nw) // 2 - nb[0]
-        ty = ly + target_h + int(H * 0.005)
+        ty = pill_y + pill_h + int(H * 0.008)
         d.text(
             (tx, ty), brand.dept_name, font=name_font,
             fill=hex_to_rgb(theme.header_text),
@@ -177,7 +203,8 @@ def _overlay_footer(base: Image.Image, theme: Theme, brand: BrandIdentity) -> No
     pill_w = min(text_w + 2 * pad_x, int(W * 0.94))
     pill_h = text_h + 2 * pad_y
     pill_x = (W - pill_w) // 2
-    pill_y = H - pill_h - int(H * 0.035)
+    # 6% breathing room below the pill so it never kisses the image edge.
+    pill_y = H - pill_h - int(H * 0.06)
 
     # Translucent pill on its own alpha layer, then composited into base.
     overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
@@ -185,7 +212,7 @@ def _overlay_footer(base: Image.Image, theme: Theme, brand: BrandIdentity) -> No
     od.rounded_rectangle(
         [pill_x, pill_y, pill_x + pill_w, pill_y + pill_h],
         radius=pill_h // 2,
-        fill=color_bg + (215,),
+        fill=color_bg + (250,),
         outline=color_accent + (255,),
         width=max(1, int(H * 0.0018)),
     )
