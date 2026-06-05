@@ -64,64 +64,70 @@ def _load_logo(logo_bytes: bytes, remove_white_bg: bool = False) -> Image.Image:
 
 
 # --------------------------------------------------------------------------- #
-# Header overlay — logo inside a backdrop pill, top-centre of image
+# Header band — small solid strip ABOVE the AI image, holds the logo alone
 # --------------------------------------------------------------------------- #
-def _overlay_header(base: Image.Image, theme: Theme, brand: BrandIdentity,
-                    logo: Image.Image) -> None:
-    """In-place: paste the tenant logo at top-centre of `base`, inside a small
-    rounded backdrop pill matching the footer pill.
+def _prepend_header(base: Image.Image, theme: Theme, brand: BrandIdentity,
+                    logo: Image.Image) -> Image.Image:
+    """Return a taller canvas: a thin solid band on top, the AI image below.
 
-    Whatever the AI rendered behind the logo zone (decorative badges,
-    headlines, ornament panels) is fully covered by the opaque pill. The pill
-    itself stays subtly translucent so the image around it still feels
-    integrated, not strip-pasted-on.
+    The logo sits inside that band with no backdrop pill around it — it's
+    alone on a solid theme colour. The AI image is untouched, so there's
+    zero risk of the logo overlapping ornament, headlines or hero subjects
+    no matter what the AI rendered.
+
+    Band height is computed from the logo size + breathing room (plus the
+    optional `dept_name` text if set), so the strip is as compact as it can
+    be while still feeling intentional.
     """
     W, H = base.size
 
-    # Logo ~ 9% of image height — slightly smaller now that we add a pill around it.
-    target_h = max(48, int(H * 0.09))
+    target_h = max(64, int(H * 0.085))
     target_w = int(logo.width * target_h / logo.height)
     logo_scaled = logo.resize((target_w, target_h), Image.LANCZOS)
 
-    # Backdrop pill geometry — wraps the logo with breathing room.
-    pad_x = max(14, int(target_h * 0.28))
-    pad_y = max(10, int(target_h * 0.18))
-    pill_w = target_w + 2 * pad_x
-    pill_h = target_h + 2 * pad_y
-    pill_x = (W - pill_w) // 2
-    pill_y = int(H * 0.025)
+    pad_top = max(14, int(target_h * 0.22))
+    pad_bot = max(10, int(target_h * 0.18))
+
+    # If the tenant has a dept_name, render it below the logo and grow the band.
+    name_text = (brand.dept_name or "").strip() or None
+    name_font = None
+    name_h = 0
+    name_gap = 0
+    if name_text:
+        name_font = _header_font(max(18, int(H * 0.022)), theme.language)
+        d_measure = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+        nb = d_measure.textbbox((0, 0), name_text, font=name_font)
+        name_h = nb[3] - nb[1]
+        name_gap = max(6, int(target_h * 0.10))
+
+    band_h = pad_top + target_h + name_gap + name_h + pad_bot
 
     color_bg = hex_to_rgb(theme.header_bg)
     color_accent = hex_to_rgb(theme.header_accent)
+    color_text = hex_to_rgb(theme.header_text)
 
-    overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
-    od = ImageDraw.Draw(overlay)
-    od.rounded_rectangle(
-        [pill_x, pill_y, pill_x + pill_w, pill_y + pill_h],
-        radius=pill_h // 2,
-        fill=color_bg + (240,),
-        outline=color_accent + (255,),
-        width=max(1, int(H * 0.0018)),
-    )
-    base.alpha_composite(overlay)
+    canvas = Image.new("RGBA", (W, H + band_h), color_bg + (255,))
+    canvas.paste(base, (0, band_h))
 
-    # Centre the logo inside the pill.
-    lx = pill_x + (pill_w - target_w) // 2
-    ly = pill_y + (pill_h - target_h) // 2
-    base.paste(logo_scaled, (lx, ly), logo_scaled)
+    # Thin accent line along the bottom edge of the band.
+    d = ImageDraw.Draw(canvas)
+    line_h = max(2, band_h // 30)
+    d.rectangle([0, band_h - line_h, W, band_h], fill=color_accent)
 
-    if brand.dept_name and brand.dept_name.strip():
-        d = ImageDraw.Draw(base)
-        name_font = _header_font(max(18, int(H * 0.026)), theme.language)
-        nb = d.textbbox((0, 0), brand.dept_name, font=name_font)
+    # Centred logo in the band.
+    lx = (W - target_w) // 2
+    ly = pad_top
+    canvas.paste(logo_scaled, (lx, ly), logo_scaled)
+
+    # Optional dept_name centred below the logo, inside the band.
+    if name_text:
+        nb = d.textbbox((0, 0), name_text, font=name_font)
         nw = nb[2] - nb[0]
         tx = (W - nw) // 2 - nb[0]
-        ty = pill_y + pill_h + int(H * 0.008)
-        d.text(
-            (tx, ty), brand.dept_name, font=name_font,
-            fill=hex_to_rgb(theme.header_text),
-            stroke_width=2, stroke_fill=(0, 0, 0, 200),
-        )
+        ty = ly + target_h + name_gap - nb[1]
+        d.text((tx, ty), name_text, font=name_font, fill=color_text)
+
+    return canvas
 
 
 # --------------------------------------------------------------------------- #
@@ -230,13 +236,19 @@ def _overlay_footer(base: Image.Image, theme: Theme, brand: BrandIdentity) -> No
 # --------------------------------------------------------------------------- #
 def add_branding(image_bytes: bytes, theme: Theme, brand: BrandIdentity,
                  logo_bytes: bytes, *, remove_white_bg: bool = False) -> Image.Image:
-    """Overlay tenant branding onto `image_bytes` in-place (same output size).
+    """Frame `image_bytes` with the tenant's branding.
 
-    Logo blends at top-centre, contact info blends into a translucent rounded
-    pill near the bottom. Returns an RGB PIL Image ready to save as PNG/JPEG.
+      * Header: a thin solid band ABOVE the AI image carrying the logo alone
+        (no backdrop pill). The AI image is never covered, so the logo can
+        never overlap whatever the AI rendered.
+      * Footer: a translucent rounded pill BLENDED onto the bottom of the
+        image, holding all contact info on one line at one consistent
+        font size.
+
+    Returns an RGB PIL Image ready to save as PNG/JPEG.
     """
     base = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
     logo = _load_logo(logo_bytes, remove_white_bg=remove_white_bg)
-    _overlay_header(base, theme, brand, logo)
-    _overlay_footer(base, theme, brand)
-    return base.convert("RGB")
+    canvas = _prepend_header(base, theme, brand, logo)
+    _overlay_footer(canvas, theme, brand)
+    return canvas.convert("RGB")
