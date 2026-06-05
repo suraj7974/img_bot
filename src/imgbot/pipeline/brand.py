@@ -1,13 +1,12 @@
-"""Compose a tenant-branded header + footer onto a generated poster.
+"""Compose tenant branding onto a generated poster — blended overlay style.
 
-  * Header: a coloured band PREPENDED above the image (canvas extended upward),
-    with the tenant logo on the far left and far right and the tenant's display
-    name (`brand.dept_name`) centred between them. Nothing on the original
-    poster is covered or cut.
-  * Footer: a coloured band APPENDED below the image with an accent line on
-    top, social glyphs + handle on the left, and the tenant's stacked contact
-    lines (phone / email / website) on the right. Header and footer share the
-    same palette by convention.
+The output is the SAME size as the input image (no canvas extension). We:
+
+  * paste the tenant logo at the top-centre of the image, transparent — it
+    blends with whatever the AI rendered behind it
+  * blend a translucent rounded "pill" near the bottom that holds the
+    contact info on a single line, every text at the SAME font size, with a
+    subtle outline matching the tenant accent colour
 
 Everything is tenant-driven via `Theme` + `BrandIdentity` — there is no module
 state. The function is pure given (image_bytes, theme, brand, logo_bytes).
@@ -65,42 +64,38 @@ def _load_logo(logo_bytes: bytes, remove_white_bg: bool = False) -> Image.Image:
 
 
 # --------------------------------------------------------------------------- #
-# Header
+# Header overlay — logo (and optional name) pasted at top-centre of image
 # --------------------------------------------------------------------------- #
-def _prepend_header(base: Image.Image, theme: Theme, brand: BrandIdentity,
-                    logo: Image.Image) -> Image.Image:
-    """Return a taller canvas: header band on top, original image below."""
+def _overlay_header(base: Image.Image, theme: Theme, brand: BrandIdentity,
+                    logo: Image.Image) -> None:
+    """In-place: paste the tenant logo at top-centre of `base`.
+
+    The logo's own alpha channel handles blending with whatever the AI
+    rendered behind it. Optional `dept_name` text appears below the logo
+    with a stroked outline so it stays legible over busy backgrounds.
+    """
     W, H = base.size
-    band_h = int(H * theme.header_height_ratio)
 
-    canvas = Image.new("RGBA", (W, H + band_h), hex_to_rgb(theme.header_bg) + (255,))
-    canvas.paste(base, (0, band_h))
-    d = ImageDraw.Draw(canvas)
-
-    # Accent line along the bottom edge of the header band.
-    line_h = max(2, band_h // 20)
-    d.rectangle([0, band_h - line_h, W, band_h], fill=hex_to_rgb(theme.header_accent))
-
-    # Two logos: far left and far right.
-    target_h = int(band_h * theme.header_logo_height_ratio)
+    # Logo ~ 10% of image height — visible without dominating.
+    target_h = max(48, int(H * 0.10))
     target_w = int(logo.width * target_h / logo.height)
     logo_scaled = logo.resize((target_w, target_h), Image.LANCZOS)
-    pad = int(W * 0.03)
-    # Lower the logos so they dip over the accent line into the image below.
-    ly = (band_h - target_h) // 2 + int(band_h * 0.22)
-    canvas.paste(logo_scaled, (pad, ly), logo_scaled)                    # left
-    canvas.paste(logo_scaled, (W - pad - target_w, ly), logo_scaled)     # right
+    lx = (W - target_w) // 2
+    ly = int(H * 0.025)
+    base.paste(logo_scaled, (lx, ly), logo_scaled)
 
-    # Optional centre text (business name / tagline). Skip entirely when
-    # blank — the header renders as a clean logos-only strip.
     if brand.dept_name and brand.dept_name.strip():
-        name_font = _header_font(int(band_h * 0.55), theme.language)
+        d = ImageDraw.Draw(base)
+        name_font = _header_font(max(18, int(H * 0.026)), theme.language)
         nb = d.textbbox((0, 0), brand.dept_name, font=name_font)
         nw = nb[2] - nb[0]
-        d.text(((W - nw) / 2 - nb[0], band_h / 2 - (nb[3] - nb[1]) / 2 - nb[1]),
-               brand.dept_name, font=name_font, fill=hex_to_rgb(theme.header_text))
-
-    return canvas
+        tx = (W - nw) // 2 - nb[0]
+        ty = ly + target_h + int(H * 0.005)
+        d.text(
+            (tx, ty), brand.dept_name, font=name_font,
+            fill=hex_to_rgb(theme.header_text),
+            stroke_width=2, stroke_fill=(0, 0, 0, 200),
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -134,53 +129,73 @@ def _centered_glyph(d, ch, x, y, s, font, color) -> None:
     d.text((x + (s - gw) / 2 - bbox[0], y + (s - gh) / 2 - bbox[1]), ch, font=font, fill=color)
 
 
-def _append_footer(base: Image.Image, theme: Theme, brand: BrandIdentity) -> Image.Image:
-    """Return a taller canvas: image on top, footer band appended below."""
+def _overlay_footer(base: Image.Image, theme: Theme, brand: BrandIdentity) -> None:
+    """In-place: blend a translucent rounded pill near the bottom of `base`.
+
+    The pill carries every footer string (social handle, phone, email, website)
+    on ONE line at the SAME font size, separated by a thin divider. Font size
+    auto-shrinks if the joined text would overflow the pill's max width, so
+    long lists still fit cleanly. The pill background is translucent so the
+    image bleeds through behind it.
+    """
     W, H = base.size
-    band_h = int(H * theme.footer_height_ratio)
 
-    canvas = Image.new("RGBA", (W, H + band_h), hex_to_rgb(theme.footer_bg) + (255,))
-    canvas.paste(base, (0, 0))
-    d = ImageDraw.Draw(canvas)
+    contacts = [
+        s for s in (
+            brand.social_handle,
+            brand.footer_phone,
+            brand.footer_email,
+            brand.footer_website,
+        ) if s and s.strip()
+    ]
+    if not contacts:
+        return
 
-    top = H
-    line_h = max(2, band_h // 20)
-    d.rectangle([0, top, W, top + line_h], fill=hex_to_rgb(theme.footer_top_line))
+    color_bg = hex_to_rgb(theme.footer_bg)
+    color_text = hex_to_rgb(theme.footer_text)
+    color_accent = hex_to_rgb(theme.footer_top_line)
 
-    pad = int(W * 0.022)
-    color = hex_to_rgb(theme.footer_text)
-    cy = top + band_h // 2
+    sep = "   ·   "
+    full_text = sep.join(contacts)
 
-    # ---- Left: social glyphs + handle (if any) ----
-    icon = int(band_h * 0.32)
-    gap = int(icon * 0.32)
-    iy = cy - icon // 2
-    x = pad
-    _draw_instagram(d, x, iy, icon, color); x += icon + gap
-    _draw_facebook(d, x, iy, icon, color);  x += icon + gap
-    _draw_x(d, x, iy, icon, color);          x += icon + int(gap * 1.4)
+    # Auto-fit: shrink the font until the joined text fits the pill's max width.
+    pad_x_ratio = 0.04
+    max_text_w = int(W * (1.0 - 2 * pad_x_ratio - 0.03))  # leave ~3% breathing room
+    font_size = max(18, int(H * 0.022))
+    d_measure = ImageDraw.Draw(base)
+    font = _latin_font(font_size)
+    text_bbox = d_measure.textbbox((0, 0), full_text, font=font)
+    while text_bbox[2] - text_bbox[0] > max_text_w and font_size > 12:
+        font_size -= 1
+        font = _latin_font(font_size)
+        text_bbox = d_measure.textbbox((0, 0), full_text, font=font)
 
-    if brand.social_handle:
-        handle_font = _latin_font(int(band_h * 0.22))
-        hb = d.textbbox((0, 0), brand.social_handle, font=handle_font)
-        d.text((x, cy - (hb[3] - hb[1]) / 2 - hb[1]), brand.social_handle,
-               font=handle_font, fill=color)
+    text_w = text_bbox[2] - text_bbox[0]
+    text_h = text_bbox[3] - text_bbox[1]
+    pad_x = int(W * pad_x_ratio)
+    pad_y = max(int(text_h * 0.7), 14)
+    pill_w = min(text_w + 2 * pad_x, int(W * 0.94))
+    pill_h = text_h + 2 * pad_y
+    pill_x = (W - pill_w) // 2
+    pill_y = H - pill_h - int(H * 0.035)
 
-    # ---- Right: stacked contact lines (skip blank ones) ----
-    contact_lines = [s for s in (brand.footer_phone, brand.footer_email, brand.footer_website) if s]
-    if contact_lines:
-        contact_font = _latin_font(int(band_h * 0.13))
-        line_gap = int(band_h * 0.05)
-        bboxes = [d.textbbox((0, 0), s, font=contact_font) for s in contact_lines]
-        heights = [b[3] - b[1] for b in bboxes]
-        block_h = sum(heights) + line_gap * (len(contact_lines) - 1)
-        y = cy - block_h // 2
-        for s, b, h in zip(contact_lines, bboxes, heights):
-            cw = b[2] - b[0]
-            d.text((W - pad - cw - b[0], y - b[1]), s, font=contact_font, fill=color)
-            y += h + line_gap
+    # Translucent pill on its own alpha layer, then composited into base.
+    overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    od = ImageDraw.Draw(overlay)
+    od.rounded_rectangle(
+        [pill_x, pill_y, pill_x + pill_w, pill_y + pill_h],
+        radius=pill_h // 2,
+        fill=color_bg + (215,),
+        outline=color_accent + (255,),
+        width=max(1, int(H * 0.0018)),
+    )
+    base.alpha_composite(overlay)
 
-    return canvas
+    # Text drawn directly on base (opaque). Centre-aligned in the pill.
+    d = ImageDraw.Draw(base)
+    tx = (W - text_w) // 2 - text_bbox[0]
+    ty = pill_y + (pill_h - text_h) // 2 - text_bbox[1]
+    d.text((tx, ty), full_text, font=font, fill=color_text)
 
 
 # --------------------------------------------------------------------------- #
@@ -188,12 +203,13 @@ def _append_footer(base: Image.Image, theme: Theme, brand: BrandIdentity) -> Ima
 # --------------------------------------------------------------------------- #
 def add_branding(image_bytes: bytes, theme: Theme, brand: BrandIdentity,
                  logo_bytes: bytes, *, remove_white_bg: bool = False) -> Image.Image:
-    """Frame `image_bytes` with the tenant's header + footer bands.
+    """Overlay tenant branding onto `image_bytes` in-place (same output size).
 
-    Returns an RGB PIL Image ready to save as PNG/JPEG.
+    Logo blends at top-centre, contact info blends into a translucent rounded
+    pill near the bottom. Returns an RGB PIL Image ready to save as PNG/JPEG.
     """
     base = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
     logo = _load_logo(logo_bytes, remove_white_bg=remove_white_bg)
-    with_header = _prepend_header(base, theme, brand, logo)
-    branded = _append_footer(with_header, theme, brand)
-    return branded.convert("RGB")
+    _overlay_header(base, theme, brand, logo)
+    _overlay_footer(base, theme, brand)
+    return base.convert("RGB")
