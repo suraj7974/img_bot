@@ -145,16 +145,24 @@ class BrandIdentity(BaseModel):
 
 
 class Theme(BaseModel):
-    """Colour palette and band geometry for header + footer."""
-    header_bg: HexColor = "#5e1622"
-    header_accent: HexColor = "#c8a24a"
-    header_text: HexColor = "#f6efe1"
-    footer_bg: HexColor = "#5e1622"
-    footer_top_line: HexColor = "#c8a24a"
-    footer_text: HexColor = "#f6efe1"
+    """Colour palette and band geometry for header + footer.
+
+    Every colour is OPTIONAL. When set, it's used verbatim. When None, the
+    brand compositor samples the AI image's edge and derives a matching
+    palette so the bands feel like part of the same scene — no awkward
+    maroon strip on a green Diwali poster.
+    """
+    header_bg: Optional[HexColor] = None
+    header_accent: Optional[HexColor] = None
+    header_text: Optional[HexColor] = None
+    footer_bg: Optional[HexColor] = None
+    footer_top_line: Optional[HexColor] = None
+    footer_text: Optional[HexColor] = None
+    # Band-size ratios are no longer used (bands auto-size to their contents),
+    # but the fields stay so existing tenant rows keep validating.
     header_height_ratio: float = 0.12
     footer_height_ratio: float = 0.12
-    header_logo_height_ratio: float = 1.30  # logo can exceed the band (overlaps below)
+    header_logo_height_ratio: float = 1.30
     language: Language = "en"  # controls header font choice (Latin vs Devanagari)
 
 

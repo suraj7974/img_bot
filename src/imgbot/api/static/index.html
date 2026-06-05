@@ -266,7 +266,21 @@
                         </h2>
                         <span id="palette-preview" class="flex gap-1.5"></span>
                     </div>
-                    <div class="grid grid-cols-3 gap-5">
+
+                    <label class="flex items-start gap-2.5 mb-5 cursor-pointer select-none">
+                        <input id="auto-theme" name="auto_theme" type="checkbox" checked
+                               class="mt-0.5 h-4 w-4 rounded border-stone-300 text-stone-900 focus:ring-stone-900">
+                        <span class="text-sm">
+                            <span class="font-medium text-stone-800">Auto-match band colours to each poster</span>
+                            <span class="block text-xs text-stone-500 mt-0.5">
+                                Recommended. The compositor samples each generated image's edges
+                                and tints the bands to match — no awkward maroon strip on a green
+                                poster. Uncheck to lock specific brand colours below.
+                            </span>
+                        </span>
+                    </label>
+
+                    <div id="theme-pickers" class="grid grid-cols-3 gap-5 opacity-50 pointer-events-none">
                         <div>
                             <label class="label">Header / footer BG</label>
                             <div class="flex items-center gap-2 mt-1.5">
@@ -462,9 +476,24 @@
                 form.phone.focus();
             }
 
+            // ---- auto-theme toggle -------------------------------------------------
+            const autoTheme = $("#auto-theme");
+            const themePickers = $("#theme-pickers");
+            function syncThemeUI() {
+                if (autoTheme.checked) {
+                    themePickers.classList.add("opacity-50", "pointer-events-none");
+                    palette.innerHTML = '<span class="text-xs text-stone-400">auto from poster</span>';
+                } else {
+                    themePickers.classList.remove("opacity-50", "pointer-events-none");
+                    renderPalette();
+                }
+            }
+            autoTheme.addEventListener("change", syncThemeUI);
+
             // ---- swatches preview --------------------------------------------------
             const palette = $("#palette-preview");
             function renderPalette() {
+                if (autoTheme.checked) return;
                 palette.innerHTML = "";
                 for (const k of ["theme_bg", "theme_accent", "theme_text"]) {
                     const c = form[k].value;
@@ -474,7 +503,7 @@
                     palette.appendChild(chip);
                 }
             }
-            renderPalette();
+            syncThemeUI();
             // keep color + hex inputs in sync (both directions)
             for (const k of ["bg", "accent", "text"]) {
                 const c = form[`theme_${k}`],
@@ -582,18 +611,16 @@
                     }),
                 );
 
-                fd.append(
-                    "theme",
-                    JSON.stringify({
-                        header_bg: form.theme_bg.value,
-                        header_accent: form.theme_accent.value,
-                        header_text: form.theme_text.value,
-                        footer_bg: form.theme_bg.value,
-                        footer_top_line: form.theme_accent.value,
-                        footer_text: form.theme_text.value,
-                        language: form.biz_language.value,
-                    }),
-                );
+                const themePayload = { language: form.biz_language.value };
+                if (!autoTheme.checked) {
+                    themePayload.header_bg = form.theme_bg.value;
+                    themePayload.header_accent = form.theme_accent.value;
+                    themePayload.header_text = form.theme_text.value;
+                    themePayload.footer_bg = form.theme_bg.value;
+                    themePayload.footer_top_line = form.theme_accent.value;
+                    themePayload.footer_text = form.theme_text.value;
+                }
+                fd.append("theme", JSON.stringify(themePayload));
 
                 fd.append("logo", form.logo.files[0]);
                 for (const f of form.samples.files) fd.append("samples", f);

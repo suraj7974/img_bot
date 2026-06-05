@@ -15,11 +15,57 @@ state. The function is pure given (image_bytes, theme, brand, logo_bytes).
 from __future__ import annotations
 
 import io
+from collections import Counter
+from typing import Optional
 
 from PIL import Image, ImageDraw, ImageFont
 
 from imgbot import config
 from imgbot.tenants.schema import BrandIdentity, Theme, hex_to_rgb
+
+
+# --------------------------------------------------------------------------- #
+# Palette derivation — when the tenant didn't pick brand colours at onboarding,
+# sample the AI image's edge so the band tones blend with the scene rather
+# than always defaulting to maroon.
+# --------------------------------------------------------------------------- #
+def _dominant_edge_color(img: Image.Image, edge: str = "top",
+                         strip_pct: float = 0.04) -> tuple[int, int, int]:
+    """Most-common RGB in a thin top or bottom strip of `img`."""
+    W, H = img.size
+    strip_h = max(20, int(H * strip_pct))
+    crop = img.crop((0, 0, W, strip_h)) if edge == "top" \
+        else img.crop((0, H - strip_h, W, H))
+    crop = crop.convert("RGB").resize((min(W, 64), min(strip_h, 16)))
+    # Bucket pixels by 16 to denoise, then take the largest bucket.
+    buckets = Counter((r >> 4, g >> 4, b >> 4) for r, g, b in crop.getdata())
+    top = buckets.most_common(1)[0][0]
+    return (top[0] * 16 + 8, top[1] * 16 + 8, top[2] * 16 + 8)
+
+
+def _luminance(rgb: tuple[int, int, int]) -> float:
+    r, g, b = rgb
+    return 0.299 * r + 0.587 * g + 0.114 * b
+
+
+def _shade(rgb: tuple[int, int, int], factor: float) -> tuple[int, int, int]:
+    """Multiply each channel by `factor` and clamp to [0, 255]."""
+    return tuple(min(255, max(0, int(c * factor))) for c in rgb)
+
+
+def _derive_band_palette(img: Image.Image, edge: str) -> tuple:
+    """Return (bg, accent, text) RGB triples for a band on this edge."""
+    raw = _dominant_edge_color(img, edge)
+    # Darken so the band reads as a "frame", not a flat extension of the image.
+    bg = _shade(raw, 0.5)
+    accent = _shade(bg, 1.9) if _luminance(bg) < 100 else _shade(bg, 0.55)
+    text = (246, 239, 225) if _luminance(bg) < 128 else (35, 25, 20)
+    return bg, accent, text
+
+
+def _theme_or(theme_hex: Optional[str], fallback_rgb: tuple) -> tuple:
+    """Convert a hex theme override to RGB, or fall through to the fallback."""
+    return hex_to_rgb(theme_hex) if theme_hex else fallback_rgb
 
 
 # --------------------------------------------------------------------------- #
@@ -102,9 +148,12 @@ def _prepend_header(base: Image.Image, theme: Theme, brand: BrandIdentity,
 
     band_h = pad_top + target_h + name_gap + name_h + pad_bot
 
-    color_bg = hex_to_rgb(theme.header_bg)
-    color_accent = hex_to_rgb(theme.header_accent)
-    color_text = hex_to_rgb(theme.header_text)
+    # Resolve band colours: explicit theme overrides win; otherwise derive
+    # from the AI image's top edge so the band feels like part of the scene.
+    fallback_bg, fallback_accent, fallback_text = _derive_band_palette(base, "top")
+    color_bg = _theme_or(theme.header_bg, fallback_bg)
+    color_accent = _theme_or(theme.header_accent, fallback_accent)
+    color_text = _theme_or(theme.header_text, fallback_text)
 
     canvas = Image.new("RGBA", (W, H + band_h), color_bg + (255,))
     canvas.paste(base, (0, band_h))
@@ -161,16 +210,16 @@ def _centered_glyph(d, ch, x, y, s, font, color) -> None:
     d.text((x + (s - gw) / 2 - bbox[0], y + (s - gh) / 2 - bbox[1]), ch, font=font, fill=color)
 
 
-def _overlay_footer(base: Image.Image, theme: Theme, brand: BrandIdentity) -> None:
-    """In-place: blend a translucent rounded pill near the bottom of `base`.
+def _append_footer(canvas: Image.Image, theme: Theme, brand: BrandIdentity) -> Image.Image:
+    """Return a taller canvas: original on top, solid footer band below.
 
-    The pill carries every footer string (social handle, phone, email, website)
-    on ONE line at the SAME font size, separated by a thin divider. Font size
-    auto-shrinks if the joined text would overflow the pill's max width, so
-    long lists still fit cleanly. The pill background is translucent so the
-    image bleeds through behind it.
+    Same architecture as `_prepend_header` — the AI image stays untouched and
+    the contact info lives in its own band. All contact strings (social
+    handle, phone, email, website) render on a single line at the SAME font
+    size, separated by a thin divider. Font auto-shrinks if the line would
+    overflow.
     """
-    W, H = base.size
+    W, H = canvas.size
 
     contacts = [
         s for s in (
@@ -181,20 +230,23 @@ def _overlay_footer(base: Image.Image, theme: Theme, brand: BrandIdentity) -> No
         ) if s and s.strip()
     ]
     if not contacts:
-        return
+        return canvas
 
-    color_bg = hex_to_rgb(theme.footer_bg)
-    color_text = hex_to_rgb(theme.footer_text)
-    color_accent = hex_to_rgb(theme.footer_top_line)
+    # Resolve band colours: explicit theme overrides win; otherwise derive
+    # from the image's bottom edge so the band feels part of the same scene.
+    fallback_bg, fallback_accent, fallback_text = _derive_band_palette(canvas, "bottom")
+    color_bg = _theme_or(theme.footer_bg, fallback_bg)
+    color_accent = _theme_or(theme.footer_top_line, fallback_accent)
+    color_text = _theme_or(theme.footer_text, fallback_text)
 
     sep = "   ·   "
     full_text = sep.join(contacts)
 
-    # Auto-fit: shrink the font until the joined text fits the pill's max width.
+    # Auto-fit: shrink font until the joined text fits the band's safe width.
     pad_x_ratio = 0.04
-    max_text_w = int(W * (1.0 - 2 * pad_x_ratio - 0.03))  # leave ~3% breathing room
+    max_text_w = int(W * (1.0 - 2 * pad_x_ratio))
     font_size = max(18, int(H * 0.022))
-    d_measure = ImageDraw.Draw(base)
+    d_measure = ImageDraw.Draw(canvas)
     font = _latin_font(font_size)
     text_bbox = d_measure.textbbox((0, 0), full_text, font=font)
     while text_bbox[2] - text_bbox[0] > max_text_w and font_size > 12:
@@ -204,31 +256,21 @@ def _overlay_footer(base: Image.Image, theme: Theme, brand: BrandIdentity) -> No
 
     text_w = text_bbox[2] - text_bbox[0]
     text_h = text_bbox[3] - text_bbox[1]
-    pad_x = int(W * pad_x_ratio)
-    pad_y = max(int(text_h * 0.7), 14)
-    pill_w = min(text_w + 2 * pad_x, int(W * 0.94))
-    pill_h = text_h + 2 * pad_y
-    pill_x = (W - pill_w) // 2
-    # 6% breathing room below the pill so it never kisses the image edge.
-    pill_y = H - pill_h - int(H * 0.06)
+    pad_top = max(14, int(text_h * 0.65))
+    pad_bot = max(14, int(text_h * 0.65))
+    band_h = pad_top + text_h + pad_bot
 
-    # Translucent pill on its own alpha layer, then composited into base.
-    overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
-    od = ImageDraw.Draw(overlay)
-    od.rounded_rectangle(
-        [pill_x, pill_y, pill_x + pill_w, pill_y + pill_h],
-        radius=pill_h // 2,
-        fill=color_bg + (250,),
-        outline=color_accent + (255,),
-        width=max(1, int(H * 0.0018)),
-    )
-    base.alpha_composite(overlay)
+    new_canvas = Image.new("RGBA", (W, H + band_h), color_bg + (255,))
+    new_canvas.paste(canvas, (0, 0))
 
-    # Text drawn directly on base (opaque). Centre-aligned in the pill.
-    d = ImageDraw.Draw(base)
+    d = ImageDraw.Draw(new_canvas)
+    line_h = max(2, band_h // 30)
+    d.rectangle([0, H, W, H + line_h], fill=color_accent)
+
     tx = (W - text_w) // 2 - text_bbox[0]
-    ty = pill_y + (pill_h - text_h) // 2 - text_bbox[1]
+    ty = H + pad_top - text_bbox[1]
     d.text((tx, ty), full_text, font=font, fill=color_text)
+    return new_canvas
 
 
 # --------------------------------------------------------------------------- #
@@ -238,17 +280,18 @@ def add_branding(image_bytes: bytes, theme: Theme, brand: BrandIdentity,
                  logo_bytes: bytes, *, remove_white_bg: bool = False) -> Image.Image:
     """Frame `image_bytes` with the tenant's branding.
 
-      * Header: a thin solid band ABOVE the AI image carrying the logo alone
-        (no backdrop pill). The AI image is never covered, so the logo can
-        never overlap whatever the AI rendered.
-      * Footer: a translucent rounded pill BLENDED onto the bottom of the
-        image, holding all contact info on one line at one consistent
-        font size.
+      * Header: a thin solid band ABOVE the AI image carrying the logo alone.
+      * Footer: a thin solid band BELOW the AI image carrying all contact
+        info on one line at one consistent font size.
+
+    The AI image is never covered — both bands are extensions of the canvas.
+    Band colours come from `theme` when set; otherwise auto-derived from the
+    AI image's edges so the bands blend with the scene.
 
     Returns an RGB PIL Image ready to save as PNG/JPEG.
     """
     base = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
     logo = _load_logo(logo_bytes, remove_white_bg=remove_white_bg)
     canvas = _prepend_header(base, theme, brand, logo)
-    _overlay_footer(canvas, theme, brand)
+    canvas = _append_footer(canvas, theme, brand)
     return canvas.convert("RGB")
