@@ -1,9 +1,14 @@
-"""Runtime poster pipeline — `(phone) → branded poster`.
+"""Runtime poster pipeline — `(chat_id) → branded poster`.
 
 Wires up Claude (idea + detailed prompt) → Gemini (image) → compositor (header
 + footer) for one paying tenant. Quota is checked before the expensive calls
 and decremented only after a successful save, so a half-failed run doesn't
 burn a token.
+
+The CLI receives a WhatsApp `chat_id` from the bot. We use the store's
+`resolve_tenant` helper which tries `chat_id`-exact match first, then falls
+back to phone-digit extraction. The bot also binds `chat_id` on first contact
+so all subsequent runs hit the fast path.
 """
 
 from __future__ import annotations
@@ -27,13 +32,14 @@ class QuotaExceeded(RuntimeError):
 
 
 class TenantNotFound(LookupError):
-    """No onboarded tenant for that phone."""
+    """No onboarded tenant for that chat_id / phone."""
 
 
 @dataclass
 class GenerationResult:
     tenant_id: str
     phone: str
+    chat_id: Optional[str]
     idea_title: str
     detailed_prompt: str
     final_local_path: Path
@@ -51,8 +57,8 @@ def _basename(idea_title: str) -> str:
     return f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{slug}"
 
 
-def run_for_phone(
-    phone: str,
+def run_for_chat_id(
+    chat_id: str,
     *,
     store: Optional[TenantStore] = None,
     assets: Optional[AssetStore] = None,
@@ -66,9 +72,17 @@ def run_for_phone(
     claude = claude or ClaudeClient()
     gemini = gemini or GeminiImageClient()
 
-    tenant: Tenant | None = store.get_by_phone(phone)
+    tenant: Tenant | None = store.resolve_tenant(chat_id)
     if tenant is None:
-        raise TenantNotFound(f"no onboarded tenant for {phone}")
+        raise TenantNotFound(f"no onboarded tenant for {chat_id}")
+
+    # First-contact chat_id binding — store the @lid form Whatsapp gave us so
+    # future calls hit the fast chat_id index instead of phone-digit fallback.
+    if tenant.chat_id != chat_id.lower():
+        try:
+            tenant = store.bind_chat_id(tenant.id, chat_id)
+        except Exception:
+            pass  # don't block a generation over this
 
     if tenant.quota_remaining <= 0:
         raise QuotaExceeded(
@@ -116,6 +130,7 @@ def run_for_phone(
     return GenerationResult(
         tenant_id=str(tenant.id),
         phone=tenant.phone,
+        chat_id=tenant.chat_id,
         idea_title=idea_title,
         detailed_prompt=detailed_prompt,
         final_local_path=final_local,
@@ -125,3 +140,7 @@ def run_for_phone(
         quota_used=tenant.quota_used,
         quota_remaining=tenant.quota_remaining,
     )
+
+
+# Back-compat alias — anything still importing run_for_phone keeps working.
+run_for_phone = run_for_chat_id

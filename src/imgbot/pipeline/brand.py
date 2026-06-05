@@ -1,13 +1,12 @@
-"""Compose a tenant-branded header + footer onto a generated poster.
+"""Compose tenant branding onto a generated poster — blended overlay style.
 
-  * Header: a coloured band PREPENDED above the image (canvas extended upward),
-    with the tenant logo on the far left and far right and the tenant's display
-    name (`brand.dept_name`) centred between them. Nothing on the original
-    poster is covered or cut.
-  * Footer: a coloured band APPENDED below the image with an accent line on
-    top, social glyphs + handle on the left, and the tenant's stacked contact
-    lines (phone / email / website) on the right. Header and footer share the
-    same palette by convention.
+The output is the SAME size as the input image (no canvas extension). We:
+
+  * paste the tenant logo at the top-centre of the image, transparent — it
+    blends with whatever the AI rendered behind it
+  * blend a translucent rounded "pill" near the bottom that holds the
+    contact info on a single line, every text at the SAME font size, with a
+    subtle outline matching the tenant accent colour
 
 Everything is tenant-driven via `Theme` + `BrandIdentity` — there is no module
 state. The function is pure given (image_bytes, theme, brand, logo_bytes).
@@ -16,11 +15,57 @@ state. The function is pure given (image_bytes, theme, brand, logo_bytes).
 from __future__ import annotations
 
 import io
+from collections import Counter
+from typing import Optional
 
 from PIL import Image, ImageDraw, ImageFont
 
 from imgbot import config
 from imgbot.tenants.schema import BrandIdentity, Theme, hex_to_rgb
+
+
+# --------------------------------------------------------------------------- #
+# Palette derivation — when the tenant didn't pick brand colours at onboarding,
+# sample the AI image's edge so the band tones blend with the scene rather
+# than always defaulting to maroon.
+# --------------------------------------------------------------------------- #
+def _dominant_edge_color(img: Image.Image, edge: str = "top",
+                         strip_pct: float = 0.04) -> tuple[int, int, int]:
+    """Most-common RGB in a thin top or bottom strip of `img`."""
+    W, H = img.size
+    strip_h = max(20, int(H * strip_pct))
+    crop = img.crop((0, 0, W, strip_h)) if edge == "top" \
+        else img.crop((0, H - strip_h, W, H))
+    crop = crop.convert("RGB").resize((min(W, 64), min(strip_h, 16)))
+    # Bucket pixels by 16 to denoise, then take the largest bucket.
+    buckets = Counter((r >> 4, g >> 4, b >> 4) for r, g, b in crop.getdata())
+    top = buckets.most_common(1)[0][0]
+    return (top[0] * 16 + 8, top[1] * 16 + 8, top[2] * 16 + 8)
+
+
+def _luminance(rgb: tuple[int, int, int]) -> float:
+    r, g, b = rgb
+    return 0.299 * r + 0.587 * g + 0.114 * b
+
+
+def _shade(rgb: tuple[int, int, int], factor: float) -> tuple[int, int, int]:
+    """Multiply each channel by `factor` and clamp to [0, 255]."""
+    return tuple(min(255, max(0, int(c * factor))) for c in rgb)
+
+
+def _derive_band_palette(img: Image.Image, edge: str) -> tuple:
+    """Return (bg, accent, text) RGB triples for a band on this edge."""
+    raw = _dominant_edge_color(img, edge)
+    # Darken so the band reads as a "frame", not a flat extension of the image.
+    bg = _shade(raw, 0.5)
+    accent = _shade(bg, 1.9) if _luminance(bg) < 100 else _shade(bg, 0.55)
+    text = (246, 239, 225) if _luminance(bg) < 128 else (35, 25, 20)
+    return bg, accent, text
+
+
+def _theme_or(theme_hex: Optional[str], fallback_rgb: tuple) -> tuple:
+    """Convert a hex theme override to RGB, or fall through to the fallback."""
+    return hex_to_rgb(theme_hex) if theme_hex else fallback_rgb
 
 
 # --------------------------------------------------------------------------- #
@@ -65,40 +110,71 @@ def _load_logo(logo_bytes: bytes, remove_white_bg: bool = False) -> Image.Image:
 
 
 # --------------------------------------------------------------------------- #
-# Header
+# Header band — small solid strip ABOVE the AI image, holds the logo alone
 # --------------------------------------------------------------------------- #
 def _prepend_header(base: Image.Image, theme: Theme, brand: BrandIdentity,
                     logo: Image.Image) -> Image.Image:
-    """Return a taller canvas: header band on top, original image below."""
+    """Return a taller canvas: a thin solid band on top, the AI image below.
+
+    The logo sits inside that band with no backdrop pill around it — it's
+    alone on a solid theme colour. The AI image is untouched, so there's
+    zero risk of the logo overlapping ornament, headlines or hero subjects
+    no matter what the AI rendered.
+
+    Band height is computed from the logo size + breathing room (plus the
+    optional `dept_name` text if set), so the strip is as compact as it can
+    be while still feeling intentional.
+    """
     W, H = base.size
-    band_h = int(H * theme.header_height_ratio)
 
-    canvas = Image.new("RGBA", (W, H + band_h), hex_to_rgb(theme.header_bg) + (255,))
-    canvas.paste(base, (0, band_h))
-    d = ImageDraw.Draw(canvas)
-
-    # Accent line along the bottom edge of the header band.
-    line_h = max(2, band_h // 20)
-    d.rectangle([0, band_h - line_h, W, band_h], fill=hex_to_rgb(theme.header_accent))
-
-    # Two logos: far left and far right.
-    target_h = int(band_h * theme.header_logo_height_ratio)
+    target_h = max(64, int(H * 0.085))
     target_w = int(logo.width * target_h / logo.height)
     logo_scaled = logo.resize((target_w, target_h), Image.LANCZOS)
-    pad = int(W * 0.03)
-    # Lower the logos so they dip over the accent line into the image below.
-    ly = (band_h - target_h) // 2 + int(band_h * 0.22)
-    canvas.paste(logo_scaled, (pad, ly), logo_scaled)                    # left
-    canvas.paste(logo_scaled, (W - pad - target_w, ly), logo_scaled)     # right
 
-    # Optional centre text (business name / tagline). Skip entirely when
-    # blank — the header renders as a clean logos-only strip.
-    if brand.dept_name and brand.dept_name.strip():
-        name_font = _header_font(int(band_h * 0.55), theme.language)
-        nb = d.textbbox((0, 0), brand.dept_name, font=name_font)
+    pad_top = max(14, int(target_h * 0.22))
+    pad_bot = max(10, int(target_h * 0.18))
+
+    # If the tenant has a dept_name, render it below the logo and grow the band.
+    name_text = (brand.dept_name or "").strip() or None
+    name_font = None
+    name_h = 0
+    name_gap = 0
+    if name_text:
+        name_font = _header_font(max(18, int(H * 0.022)), theme.language)
+        d_measure = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+        nb = d_measure.textbbox((0, 0), name_text, font=name_font)
+        name_h = nb[3] - nb[1]
+        name_gap = max(6, int(target_h * 0.10))
+
+    band_h = pad_top + target_h + name_gap + name_h + pad_bot
+
+    # Resolve band colours: explicit theme overrides win; otherwise derive
+    # from the AI image's top edge so the band feels like part of the scene.
+    fallback_bg, fallback_accent, fallback_text = _derive_band_palette(base, "top")
+    color_bg = _theme_or(theme.header_bg, fallback_bg)
+    color_accent = _theme_or(theme.header_accent, fallback_accent)
+    color_text = _theme_or(theme.header_text, fallback_text)
+
+    canvas = Image.new("RGBA", (W, H + band_h), color_bg + (255,))
+    canvas.paste(base, (0, band_h))
+
+    # Thin accent line along the bottom edge of the band.
+    d = ImageDraw.Draw(canvas)
+    line_h = max(2, band_h // 30)
+    d.rectangle([0, band_h - line_h, W, band_h], fill=color_accent)
+
+    # Centred logo in the band.
+    lx = (W - target_w) // 2
+    ly = pad_top
+    canvas.paste(logo_scaled, (lx, ly), logo_scaled)
+
+    # Optional dept_name centred below the logo, inside the band.
+    if name_text:
+        nb = d.textbbox((0, 0), name_text, font=name_font)
         nw = nb[2] - nb[0]
-        d.text(((W - nw) / 2 - nb[0], band_h / 2 - (nb[3] - nb[1]) / 2 - nb[1]),
-               brand.dept_name, font=name_font, fill=hex_to_rgb(theme.header_text))
+        tx = (W - nw) // 2 - nb[0]
+        ty = ly + target_h + name_gap - nb[1]
+        d.text((tx, ty), name_text, font=name_font, fill=color_text)
 
     return canvas
 
@@ -134,53 +210,67 @@ def _centered_glyph(d, ch, x, y, s, font, color) -> None:
     d.text((x + (s - gw) / 2 - bbox[0], y + (s - gh) / 2 - bbox[1]), ch, font=font, fill=color)
 
 
-def _append_footer(base: Image.Image, theme: Theme, brand: BrandIdentity) -> Image.Image:
-    """Return a taller canvas: image on top, footer band appended below."""
-    W, H = base.size
-    band_h = int(H * theme.footer_height_ratio)
+def _append_footer(canvas: Image.Image, theme: Theme, brand: BrandIdentity) -> Image.Image:
+    """Return a taller canvas: original on top, solid footer band below.
 
-    canvas = Image.new("RGBA", (W, H + band_h), hex_to_rgb(theme.footer_bg) + (255,))
-    canvas.paste(base, (0, 0))
-    d = ImageDraw.Draw(canvas)
+    Same architecture as `_prepend_header` — the AI image stays untouched and
+    the contact info lives in its own band. All contact strings (social
+    handle, phone, email, website) render on a single line at the SAME font
+    size, separated by a thin divider. Font auto-shrinks if the line would
+    overflow.
+    """
+    W, H = canvas.size
 
-    top = H
-    line_h = max(2, band_h // 20)
-    d.rectangle([0, top, W, top + line_h], fill=hex_to_rgb(theme.footer_top_line))
+    contacts = [
+        s for s in (
+            brand.social_handle,
+            brand.footer_phone,
+            brand.footer_email,
+            brand.footer_website,
+        ) if s and s.strip()
+    ]
+    if not contacts:
+        return canvas
 
-    pad = int(W * 0.022)
-    color = hex_to_rgb(theme.footer_text)
-    cy = top + band_h // 2
+    # Resolve band colours: explicit theme overrides win; otherwise derive
+    # from the image's bottom edge so the band feels part of the same scene.
+    fallback_bg, fallback_accent, fallback_text = _derive_band_palette(canvas, "bottom")
+    color_bg = _theme_or(theme.footer_bg, fallback_bg)
+    color_accent = _theme_or(theme.footer_top_line, fallback_accent)
+    color_text = _theme_or(theme.footer_text, fallback_text)
 
-    # ---- Left: social glyphs + handle (if any) ----
-    icon = int(band_h * 0.32)
-    gap = int(icon * 0.32)
-    iy = cy - icon // 2
-    x = pad
-    _draw_instagram(d, x, iy, icon, color); x += icon + gap
-    _draw_facebook(d, x, iy, icon, color);  x += icon + gap
-    _draw_x(d, x, iy, icon, color);          x += icon + int(gap * 1.4)
+    sep = "   ·   "
+    full_text = sep.join(contacts)
 
-    if brand.social_handle:
-        handle_font = _latin_font(int(band_h * 0.22))
-        hb = d.textbbox((0, 0), brand.social_handle, font=handle_font)
-        d.text((x, cy - (hb[3] - hb[1]) / 2 - hb[1]), brand.social_handle,
-               font=handle_font, fill=color)
+    # Auto-fit: shrink font until the joined text fits the band's safe width.
+    pad_x_ratio = 0.04
+    max_text_w = int(W * (1.0 - 2 * pad_x_ratio))
+    font_size = max(18, int(H * 0.022))
+    d_measure = ImageDraw.Draw(canvas)
+    font = _latin_font(font_size)
+    text_bbox = d_measure.textbbox((0, 0), full_text, font=font)
+    while text_bbox[2] - text_bbox[0] > max_text_w and font_size > 12:
+        font_size -= 1
+        font = _latin_font(font_size)
+        text_bbox = d_measure.textbbox((0, 0), full_text, font=font)
 
-    # ---- Right: stacked contact lines (skip blank ones) ----
-    contact_lines = [s for s in (brand.footer_phone, brand.footer_email, brand.footer_website) if s]
-    if contact_lines:
-        contact_font = _latin_font(int(band_h * 0.13))
-        line_gap = int(band_h * 0.05)
-        bboxes = [d.textbbox((0, 0), s, font=contact_font) for s in contact_lines]
-        heights = [b[3] - b[1] for b in bboxes]
-        block_h = sum(heights) + line_gap * (len(contact_lines) - 1)
-        y = cy - block_h // 2
-        for s, b, h in zip(contact_lines, bboxes, heights):
-            cw = b[2] - b[0]
-            d.text((W - pad - cw - b[0], y - b[1]), s, font=contact_font, fill=color)
-            y += h + line_gap
+    text_w = text_bbox[2] - text_bbox[0]
+    text_h = text_bbox[3] - text_bbox[1]
+    pad_top = max(14, int(text_h * 0.65))
+    pad_bot = max(14, int(text_h * 0.65))
+    band_h = pad_top + text_h + pad_bot
 
-    return canvas
+    new_canvas = Image.new("RGBA", (W, H + band_h), color_bg + (255,))
+    new_canvas.paste(canvas, (0, 0))
+
+    d = ImageDraw.Draw(new_canvas)
+    line_h = max(2, band_h // 30)
+    d.rectangle([0, H, W, H + line_h], fill=color_accent)
+
+    tx = (W - text_w) // 2 - text_bbox[0]
+    ty = H + pad_top - text_bbox[1]
+    d.text((tx, ty), full_text, font=font, fill=color_text)
+    return new_canvas
 
 
 # --------------------------------------------------------------------------- #
@@ -188,12 +278,20 @@ def _append_footer(base: Image.Image, theme: Theme, brand: BrandIdentity) -> Ima
 # --------------------------------------------------------------------------- #
 def add_branding(image_bytes: bytes, theme: Theme, brand: BrandIdentity,
                  logo_bytes: bytes, *, remove_white_bg: bool = False) -> Image.Image:
-    """Frame `image_bytes` with the tenant's header + footer bands.
+    """Frame `image_bytes` with the tenant's branding.
+
+      * Header: a thin solid band ABOVE the AI image carrying the logo alone.
+      * Footer: a thin solid band BELOW the AI image carrying all contact
+        info on one line at one consistent font size.
+
+    The AI image is never covered — both bands are extensions of the canvas.
+    Band colours come from `theme` when set; otherwise auto-derived from the
+    AI image's edges so the bands blend with the scene.
 
     Returns an RGB PIL Image ready to save as PNG/JPEG.
     """
     base = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
     logo = _load_logo(logo_bytes, remove_white_bg=remove_white_bg)
-    with_header = _prepend_header(base, theme, brand, logo)
-    branded = _append_footer(with_header, theme, brand)
-    return branded.convert("RGB")
+    canvas = _prepend_header(base, theme, brand, logo)
+    canvas = _append_footer(canvas, theme, brand)
+    return canvas.convert("RGB")

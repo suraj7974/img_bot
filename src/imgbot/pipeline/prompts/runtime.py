@@ -22,5 +22,10 @@ Recent posters this tenant has already produced — do NOT repeat or near-duplic
 
 {recent_idea_titles}
 
+COMPOSITED-OVERLAY ZONES — keep these areas of the canvas visually CLEAN (background imagery only; NO text, no headlines, no logos, no decorative copy, no people's faces, no critical subject content):
+  • TOP-CENTRE STRIP — roughly the top 14% of the canvas height, centred horizontally (~50% of the width). The tenant's logo is composited here.
+  • BOTTOM STRIP — roughly the bottom 18% of the canvas height, full width. A contact pill is composited here.
+Any text, headline, sub-headline, or important subject placed in those two zones will be COVERED by the overlay and look broken. Push every headline / sub-headline / hero subject INTO the middle ~70% of the canvas.
+
 Pick ONE fresh idea on-brand for this tenant, following every rule in your system instructions. Then emit your output through the `emit_poster_plan` tool: a short idea title (≤8 words) and a full, dense, self-contained detailed image-generation prompt.
 """

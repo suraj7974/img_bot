@@ -8,7 +8,7 @@ fit `Tenant`, you get a clean validation error here, not deep in the pipeline.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from functools import lru_cache
 from typing import Optional
 from uuid import UUID
@@ -21,6 +21,8 @@ from imgbot.tenants.schema import (
     PosterRecord,
     Tenant,
     TenantMetaInput,
+    derived_chat_id,
+    normalize_chat_id,
     normalize_phone,
 )
 
@@ -56,6 +58,46 @@ class TenantStore:
         )
         return Tenant.model_validate(rows[0]) if rows else None
 
+    def get_by_chat_id(self, chat_id: str) -> Optional[Tenant]:
+        """Look up a tenant by their resolved WhatsApp JID."""
+        chat_id = normalize_chat_id(chat_id)
+        rows = (
+            self._t("tenants")
+            .select("*")
+            .eq("chat_id", chat_id)
+            .limit(1)
+            .execute()
+            .data
+        )
+        return Tenant.model_validate(rows[0]) if rows else None
+
+    def resolve_tenant(self, chat_id: str) -> Optional[Tenant]:
+        """Bot-side runtime lookup. Try chat_id (fast path). If we haven't
+        seen this WhatsApp account before AND it's a phone-based JID, fall
+        back to extracting the digits and matching by `phone`. Hits the
+        @c.us case naturally; @lid will only match once the row's chat_id
+        has been bound — `bind_chat_id` does that on first contact."""
+        chat_id = normalize_chat_id(chat_id)
+        hit = self.get_by_chat_id(chat_id)
+        if hit is not None:
+            return hit
+        if chat_id.endswith("@c.us"):
+            digits = chat_id.split("@", 1)[0]
+            return self.get_by_phone("+" + digits)
+        return None
+
+    def bind_chat_id(self, tenant_id: UUID | str, chat_id: str) -> Tenant:
+        """Persist the resolved WhatsApp JID on a tenant row."""
+        chat_id = normalize_chat_id(chat_id)
+        row = (
+            self._t("tenants")
+            .update({"chat_id": chat_id})
+            .eq("id", str(tenant_id))
+            .execute()
+            .data[0]
+        )
+        return Tenant.model_validate(row)
+
     def get_by_id(self, tenant_id: UUID | str) -> Optional[Tenant]:
         rows = (
             self._t("tenants")
@@ -87,6 +129,9 @@ class TenantStore:
     ) -> Tenant:
         payload = {
             "phone": meta.phone,
+            # Pre-fill chat_id with the deterministic `<digits>@c.us` form.
+            # If the user is actually @lid, the bot overwrites this on first DM.
+            "chat_id": derived_chat_id(meta.phone),
             "business": meta.business.model_dump(),
             "brand": meta.brand.model_dump(),
             "theme": meta.theme.model_dump(),
@@ -158,6 +203,49 @@ class TenantStore:
             .data[0]
         )
         return Tenant.model_validate(row)
+
+    # ---- pending tenants (pre-onboard inbox) ------------------------------ #
+    def upsert_pending(self, chat_id: str, last_message: str = "") -> None:
+        """Record (or refresh) a chat_id that has DM'd the bot but isn't
+        onboarded yet. Increments `message_count` on every call, refreshes
+        `last_seen_at`, keeps `first_seen_at` from the original insert."""
+        chat_id = normalize_chat_id(chat_id)
+        msg = (last_message or "")[:500]
+        existing = (
+            self._t("pending_tenants")
+            .select("message_count")
+            .eq("chat_id", chat_id)
+            .limit(1)
+            .execute()
+            .data
+        )
+        if existing:
+            self._t("pending_tenants").update({
+                "last_message": msg,
+                "message_count": existing[0]["message_count"] + 1,
+                "last_seen_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("chat_id", chat_id).execute()
+        else:
+            self._t("pending_tenants").insert({
+                "chat_id": chat_id,
+                "last_message": msg,
+            }).execute()
+
+    def list_pending(self) -> list[dict]:
+        return (
+            self._t("pending_tenants")
+            .select("*")
+            .order("last_seen_at", desc=True)
+            .execute()
+            .data
+        )
+
+    def delete_pending(self, chat_id: str) -> None:
+        try:
+            chat_id = normalize_chat_id(chat_id)
+        except ValueError:
+            return  # nothing to delete for an invalid id
+        self._t("pending_tenants").delete().eq("chat_id", chat_id).execute()
 
     # ---- posters ---------------------------------------------------------- #
     def get_recent_idea_titles(self, tenant_id: UUID | str, n: int = 8) -> list[str]:

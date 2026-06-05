@@ -1,15 +1,15 @@
 """Tenant binary-asset storage on Supabase Storage.
 
-Handles logos, sample posters, and generated posters. We mirror logos under
-`data/tenants/<phone>/logo.<ext>` so the runtime pipeline doesn't pay a
-network round-trip just to fetch the logo on every generation.
+Handles logos, sample posters, and generated posters. Keyed by the tenant's
+canonical phone (E.164, `+91…`). We mirror logos under `data/tenants/<phone>/`
+so the runtime pipeline doesn't pay a network round-trip just to fetch the
+logo on every generation.
 """
 
 from __future__ import annotations
 
 import io
 from pathlib import Path
-from typing import Optional
 
 from PIL import Image
 
@@ -52,9 +52,9 @@ class AssetStore:
 
     # -- upload ------------------------------------------------------------- #
     def upload_logo(self, phone: str, image_bytes: bytes) -> str:
-        phone = normalize_phone(phone)
+        seg = normalize_phone(phone)
         ext = _ext_for_bytes(image_bytes, "png")
-        path = f"{phone}/logo.{ext}"
+        path = f"{seg}/logo.{ext}"
         self._storage.from_(LOGO_BUCKET).upload(
             path,
             image_bytes,
@@ -65,9 +65,9 @@ class AssetStore:
         return path
 
     def upload_sample(self, phone: str, index: int, image_bytes: bytes) -> str:
-        phone = normalize_phone(phone)
+        seg = normalize_phone(phone)
         ext = _ext_for_bytes(image_bytes, "jpg")
-        path = f"{phone}/sample_{index:02d}.{ext}"
+        path = f"{seg}/sample_{index:02d}.{ext}"
         self._storage.from_(SAMPLE_BUCKET).upload(
             path,
             image_bytes,
@@ -78,9 +78,9 @@ class AssetStore:
     def upload_poster_pair(
         self, phone: str, basename: str, *, raw: bytes, final: bytes
     ) -> tuple[str, str]:
-        phone = normalize_phone(phone)
-        raw_path = f"{phone}/{basename}.raw.png"
-        final_path = f"{phone}/{basename}.final.png"
+        seg = normalize_phone(phone)
+        raw_path = f"{seg}/{basename}.raw.png"
+        final_path = f"{seg}/{basename}.final.png"
         opts = {"content-type": "image/png", "upsert": "true"}
         self._storage.from_(POSTER_BUCKET).upload(raw_path, raw, file_options=opts)
         self._storage.from_(POSTER_BUCKET).upload(final_path, final, file_options=opts)
@@ -93,7 +93,6 @@ class AssetStore:
     def get_logo_bytes(self, phone: str, logo_path: str, *, use_cache: bool = True) -> bytes:
         """Return the tenant's logo bytes. Hits the local mirror first when
         possible, otherwise pulls from Storage and refreshes the mirror."""
-        phone = normalize_phone(phone)
         cache_dir = _tenant_cache_dir(phone)
         cached = cache_dir / Path(logo_path).name
         if use_cache and cached.exists():
@@ -107,7 +106,6 @@ class AssetStore:
     ) -> tuple[Path, Path]:
         """Also drop a local copy of each generated poster so the WhatsApp bot
         can `MessageMedia.fromFilePath` without re-downloading."""
-        phone = normalize_phone(phone)
         out_dir = _tenant_cache_dir(phone) / "posters"
         out_dir.mkdir(parents=True, exist_ok=True)
         raw_p = out_dir / f"{basename}.raw.png"

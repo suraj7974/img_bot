@@ -1,355 +1,642 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>imgbot · onboard a tenant</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <style>
-    html, body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
-    .mono { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; }
-  </style>
-  <!-- Tailwind Play CDN only processes @apply inside a style block with this MIME type. -->
-  <style type="text/tailwindcss">
-    @layer components {
-      .input { @apply mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-[15px] text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-900 focus:border-transparent transition; }
-      .label { @apply block text-sm font-medium text-stone-700; }
-      .hint  { @apply mt-1 text-xs text-stone-500; }
-      .section-title { @apply text-xs font-semibold uppercase tracking-wider text-stone-500; }
-      .card { @apply bg-white rounded-2xl border border-stone-200 shadow-sm p-7; }
-      .dropzone { @apply flex flex-col items-center justify-center w-full rounded-xl border-2 border-dashed border-stone-300 bg-stone-50 px-6 py-8 text-center cursor-pointer transition hover:border-stone-400 hover:bg-stone-100; }
-      .dropzone.dragover { @apply border-stone-900 bg-stone-100; }
-      .swatch { @apply inline-flex items-center gap-2 rounded-lg border border-stone-200 bg-white pl-2 pr-3 py-1.5 text-xs; }
-      .swatch-chip { @apply h-5 w-5 rounded-md border border-stone-300; }
-    }
-  </style>
-</head>
-<body class="bg-stone-100 text-stone-900 antialiased min-h-screen">
-
-<!-- NAV -->
-<nav class="sticky top-0 z-20 bg-white/85 backdrop-blur border-b border-stone-200">
-  <div class="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between">
-    <a href="/" class="flex items-center gap-2.5">
-      <div class="h-7 w-7 rounded-lg bg-stone-900 text-white flex items-center justify-center text-[11px] font-bold">ib</div>
-      <div>
-        <div class="text-sm font-semibold leading-tight">imgbot</div>
-        <div class="text-[11px] text-stone-500 leading-tight">multi-tenant poster pipeline</div>
-      </div>
-    </a>
-    <div class="flex items-center gap-1 text-sm">
-      <a href="/" class="px-3 py-1.5 rounded-md bg-stone-900 text-white">Onboard</a>
-    </div>
-  </div>
-</nav>
-
-<main class="max-w-5xl mx-auto px-6 py-10">
-
-  <header class="mb-8">
-    <h1 class="text-3xl font-bold tracking-tight">Onboard a new tenant</h1>
-    <p class="text-stone-600 mt-1.5 max-w-2xl">
-      Fill in the business + brand profile, drop a logo, optionally add a few sample posters they like and an ideas / trends note. Claude (Opus 4.8) writes a per-tenant system prompt; runtime generations use Sonnet 4.6 with that prompt cached.
-    </p>
-  </header>
-
-  <form id="onboard-form" class="space-y-6">
-
-    <!-- BUSINESS -->
-    <section class="card">
-      <div class="flex items-baseline justify-between mb-5">
-        <h2 class="section-title">Business</h2>
-        <span class="text-xs text-stone-400">required</span>
-      </div>
-      <div class="grid grid-cols-2 gap-x-5 gap-y-4">
-        <div>
-          <label class="label">Phone (WhatsApp, E.164)</label>
-          <input name="phone" class="input mono" type="text"
-                 placeholder="+917974387273"
-                 pattern="^\+?\d{11,15}$"
-                 title="11-15 digits including country code, e.g. +917974387273"
-                 inputmode="tel"
-                 required>
-          <p class="hint">Include the country code (India = <span class="mono">+91</span>). The bot looks this up exactly against the WhatsApp sender's phone — a missing country code will break runtime.</p>
-        </div>
-        <div>
-          <label class="label">Plan quota / month</label>
-          <input name="plan_quota" class="input" type="number" value="10" min="1" required>
-        </div>
-        <div class="col-span-2">
-          <label class="label">Business name</label>
-          <input name="biz_name" class="input" type="text" placeholder="Baster Event Management" required>
-        </div>
-        <div class="col-span-2">
-          <label class="label">Business type</label>
-          <input name="biz_type" class="input" type="text" placeholder="event management, sweet shop, coaching institute…" required>
-        </div>
-        <div>
-          <label class="label">Location</label>
-          <input name="biz_location" class="input" type="text" placeholder="Mahasamund, Chhattisgarh">
-        </div>
-        <div>
-          <label class="label">Language</label>
-          <select name="biz_language" class="input bg-white">
-            <option value="en">English</option>
-            <option value="hi">Hindi (Devanagari)</option>
-          </select>
-        </div>
-        <div class="col-span-2">
-          <label class="label">Tagline</label>
-          <input name="biz_tagline" class="input" type="text" placeholder="Creation with perfection">
-        </div>
-        <div>
-          <label class="label">Target audience</label>
-          <input name="biz_audience" class="input" type="text" placeholder="couples planning weddings">
-        </div>
-        <div>
-          <label class="label">Tone</label>
-          <input name="biz_tone" class="input" type="text" placeholder="luxury / festive / official / playful">
-        </div>
-        <div class="col-span-2">
-          <label class="label">Internal notes (optional)</label>
-          <textarea name="biz_notes" rows="2" class="input"></textarea>
-        </div>
-      </div>
-    </section>
-
-    <!-- BRAND -->
-    <section class="card">
-      <div class="flex items-baseline justify-between mb-5">
-        <h2 class="section-title">Brand strings (composited into header / footer)</h2>
-        <span class="text-xs text-stone-400">all optional</span>
-      </div>
-      <div class="grid grid-cols-2 gap-x-5 gap-y-4">
-        <div class="col-span-2">
-          <label class="label">Header text <span class="text-xs text-stone-400 font-normal">— optional, leave blank for a logos-only header band</span></label>
-          <input name="brand_dept" class="input" type="text" placeholder="business name, or leave blank">
-        </div>
-        <div class="col-span-2">
-          <label class="label">Social handle (footer left, next to the glyphs)</label>
-          <input name="brand_handle" class="input" type="text" placeholder="@baster.event">
-        </div>
-        <div>
-          <label class="label">Footer phone</label>
-          <input name="brand_phone" class="input" type="text" placeholder="MO. 7974387273">
-        </div>
-        <div>
-          <label class="label">Footer email</label>
-          <input name="brand_email" class="input" type="text" placeholder="hello@example.com">
-        </div>
-        <div class="col-span-2">
-          <label class="label">Footer website</label>
-          <input name="brand_website" class="input" type="text" placeholder="www.example.com">
-        </div>
-      </div>
-    </section>
-
-    <!-- THEME -->
-    <section class="card">
-      <div class="flex items-baseline justify-between mb-5">
-        <h2 class="section-title">Theme (header + footer band colours)</h2>
-        <span id="palette-preview" class="flex gap-1.5"></span>
-      </div>
-      <div class="grid grid-cols-3 gap-5">
-        <div>
-          <label class="label">Header / footer BG</label>
-          <div class="flex items-center gap-2 mt-1.5">
-            <input name="theme_bg" type="color" value="#5e1622" class="h-10 w-14 rounded-md border border-stone-300 cursor-pointer">
-            <input name="theme_bg_hex" class="input mono text-sm flex-1" value="#5e1622" placeholder="#5e1622">
-          </div>
-        </div>
-        <div>
-          <label class="label">Accent line</label>
-          <div class="flex items-center gap-2 mt-1.5">
-            <input name="theme_accent" type="color" value="#c8a24a" class="h-10 w-14 rounded-md border border-stone-300 cursor-pointer">
-            <input name="theme_accent_hex" class="input mono text-sm flex-1" value="#c8a24a" placeholder="#c8a24a">
-          </div>
-        </div>
-        <div>
-          <label class="label">Text on bands</label>
-          <div class="flex items-center gap-2 mt-1.5">
-            <input name="theme_text" type="color" value="#f6efe1" class="h-10 w-14 rounded-md border border-stone-300 cursor-pointer">
-            <input name="theme_text_hex" class="input mono text-sm flex-1" value="#f6efe1" placeholder="#f6efe1">
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- LOGO + SAMPLES -->
-    <section class="card">
-      <h2 class="section-title mb-5">Logo, samples, context</h2>
-
-      <div class="space-y-5">
-        <div>
-          <label class="label">Logo <span class="text-xs text-stone-400 font-normal">— required, transparent PNG preferred</span></label>
-          <label id="logo-drop" class="dropzone mt-1.5">
-            <input id="logo-input" name="logo" type="file" accept="image/png,image/jpeg,image/webp" required class="hidden">
-            <div id="logo-empty" class="text-sm text-stone-500">
-              <strong class="text-stone-700">Drop logo here</strong> or click to choose
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>imgbot · onboard a tenant</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+            rel="stylesheet"
+        />
+        <style>
+            html,
+            body {
+                font-family:
+                    "Inter",
+                    -apple-system,
+                    BlinkMacSystemFont,
+                    sans-serif;
+            }
+            .mono {
+                font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+            }
+        </style>
+        <!-- Tailwind Play CDN only processes @apply inside a style block with this MIME type. -->
+        <style type="text/tailwindcss">
+            @layer components {
+                .input {
+                    @apply mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-[15px] text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-900 focus:border-transparent transition;
+                }
+                .label {
+                    @apply block text-sm font-medium text-stone-700;
+                }
+                .hint {
+                    @apply mt-1 text-xs text-stone-500;
+                }
+                .section-title {
+                    @apply text-xs font-semibold uppercase tracking-wider text-stone-500;
+                }
+                .card {
+                    @apply bg-white rounded-2xl border border-stone-200 shadow-sm p-7;
+                }
+                .dropzone {
+                    @apply flex flex-col items-center justify-center w-full rounded-xl border-2 border-dashed border-stone-300 bg-stone-50 px-6 py-8 text-center cursor-pointer transition hover:border-stone-400 hover:bg-stone-100;
+                }
+                .dropzone.dragover {
+                    @apply border-stone-900 bg-stone-100;
+                }
+                .swatch {
+                    @apply inline-flex items-center gap-2 rounded-lg border border-stone-200 bg-white pl-2 pr-3 py-1.5 text-xs;
+                }
+                .swatch-chip {
+                    @apply h-5 w-5 rounded-md border border-stone-300;
+                }
+            }
+        </style>
+    </head>
+    <body class="bg-stone-100 text-stone-900 antialiased min-h-screen">
+        <!-- NAV -->
+        <nav
+            class="sticky top-0 z-20 bg-white/85 backdrop-blur border-b border-stone-200"
+        >
+            <div
+                class="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between"
+            >
+                <a href="/" class="flex items-center gap-2.5">
+                    <div
+                        class="h-7 w-7 rounded-lg bg-stone-900 text-white flex items-center justify-center text-[11px] font-bold"
+                    >
+                        ib
+                    </div>
+                    <div>
+                        <div class="text-sm font-semibold leading-tight">
+                            imgbot
+                        </div>
+                        <div class="text-[11px] text-stone-500 leading-tight">
+                            multi-tenant poster pipeline
+                        </div>
+                    </div>
+                </a>
+                <div class="flex items-center gap-1 text-sm">
+                    <a href="/" class="px-3 py-1.5 rounded-md bg-stone-900 text-white">Onboard</a>
+                    <a href="/pending" class="px-3 py-1.5 rounded-md text-stone-600 hover:bg-stone-100">Pending</a>
+                </div>
             </div>
-            <img id="logo-preview" class="hidden max-h-28 rounded-md" alt="logo preview">
-          </label>
-        </div>
+        </nav>
 
-        <div>
-          <label class="label">Sample posters the customer likes <span class="text-xs text-stone-400 font-normal">— optional, multi-select</span></label>
-          <label id="samples-drop" class="dropzone mt-1.5">
-            <input id="samples-input" name="samples" type="file" accept="image/*" multiple class="hidden">
-            <div id="samples-empty" class="text-sm text-stone-500">
-              <strong class="text-stone-700">Drop sample posters here</strong> or click to choose multiple
-            </div>
-            <div id="samples-preview" class="hidden grid grid-cols-4 gap-2"></div>
-          </label>
-          <p class="hint">Claude looks at these via vision for style cues — composition, density, palette discipline.</p>
-        </div>
+        <main class="max-w-5xl mx-auto px-6 py-10">
+            <form id="onboard-form" class="space-y-6">
+                <!-- BUSINESS -->
+                <section class="card">
+                    <div class="flex items-baseline justify-between mb-5">
+                        <h2 class="section-title">Business</h2>
+                        <span class="text-xs text-stone-400">required</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-x-5 gap-y-4">
+                        <div>
+                            <label class="label">Phone</label>
+                            <input
+                                name="phone"
+                                class="input mono"
+                                type="text"
+                                placeholder="7974387273  or  +917974387273"
+                                inputmode="tel"
+                                required
+                            />
+                            <p class="hint">
+                                10-digit Indian mobile is auto-prefixed with
+                                <span class="mono">+91</span>. For other countries,
+                                paste the full <span class="mono">+&lt;cc&gt;&lt;number&gt;</span>.
+                                The bot links this phone to the WhatsApp account on
+                                first DM — admin never needs to deal with chat IDs.
+                            </p>
+                        </div>
+                        <div>
+                            <label class="label">Plan quota / month</label>
+                            <input
+                                name="plan_quota"
+                                class="input"
+                                type="number"
+                                value="10"
+                                min="1"
+                                required
+                            />
+                        </div>
+                        <div class="col-span-2">
+                            <label class="label">Business name</label>
+                            <input
+                                name="biz_name"
+                                class="input"
+                                type="text"
+                                placeholder="Baster Event Management"
+                                required
+                            />
+                        </div>
+                        <div class="col-span-2">
+                            <label class="label">Business type</label>
+                            <input
+                                name="biz_type"
+                                class="input"
+                                type="text"
+                                placeholder="event management, sweet shop, coaching institute…"
+                                required
+                            />
+                        </div>
+                        <div>
+                            <label class="label">Location</label>
+                            <input
+                                name="biz_location"
+                                class="input"
+                                type="text"
+                                placeholder="Mahasamund, Chhattisgarh"
+                            />
+                        </div>
+                        <div>
+                            <label class="label">Language</label>
+                            <select name="biz_language" class="input bg-white">
+                                <option value="en">English</option>
+                                <option value="hi">Hindi (Devanagari)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="label">Target audience</label>
+                            <input
+                                name="biz_audience"
+                                class="input"
+                                type="text"
+                                placeholder="couples planning weddings"
+                            />
+                        </div>
+                        <div>
+                            <label class="label">Tone</label>
+                            <input
+                                name="biz_tone"
+                                class="input"
+                                type="text"
+                                placeholder="luxury / festive / official / playful"
+                            />
+                        </div>
+                        <div class="col-span-2">
+                            <label class="label"
+                                >Internal notes (optional)</label
+                            >
+                            <textarea
+                                name="biz_notes"
+                                rows="2"
+                                class="input"
+                            ></textarea>
+                        </div>
+                    </div>
+                </section>
 
-        <div>
-          <label class="label">Inspiration / ideas <span class="text-xs text-stone-400 font-normal">— optional</span></label>
-          <textarea name="inspiration_ideas" rows="5" class="input"
-                    placeholder="What kind of posters does this customer want? Style notes, audience moodboard, brand voice cues, things to avoid…"></textarea>
-          <p class="hint">Free-form. Claude treats this as style guidance, not facts.</p>
-        </div>
+                <!-- BRAND -->
+                <section class="card">
+                    <div class="flex items-baseline justify-between mb-5">
+                        <h2 class="section-title">
+                            Brand strings (composited into header / footer)
+                        </h2>
+                        <span class="text-xs text-stone-400">all optional</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-x-5 gap-y-4">
+                        <div class="col-span-2">
+                            <label class="label"
+                                >Header text
+                                <span class="text-xs text-stone-400 font-normal"
+                                    >— optional, leave blank for a logos-only
+                                    header band</span
+                                ></label
+                            >
+                            <input
+                                name="brand_dept"
+                                class="input"
+                                type="text"
+                                placeholder="business name, or leave blank"
+                            />
+                        </div>
+                        <div class="col-span-2">
+                            <label class="label"
+                                >Social handle (footer left, next to the
+                                glyphs)</label
+                            >
+                            <input
+                                name="brand_handle"
+                                class="input"
+                                type="text"
+                                placeholder="@baster.event"
+                            />
+                        </div>
+                        <div>
+                            <label class="label">Footer phone</label>
+                            <input
+                                name="brand_phone"
+                                class="input"
+                                type="text"
+                                placeholder="MO. 7974387273"
+                            />
+                        </div>
+                        <div>
+                            <label class="label">Footer email</label>
+                            <input
+                                name="brand_email"
+                                class="input"
+                                type="text"
+                                placeholder="hello@example.com"
+                            />
+                        </div>
+                        <div class="col-span-2">
+                            <label class="label">Footer website</label>
+                            <input
+                                name="brand_website"
+                                class="input"
+                                type="text"
+                                placeholder="www.example.com"
+                            />
+                        </div>
+                    </div>
+                </section>
 
-        <div class="rounded-xl bg-stone-50 border border-stone-200 p-4">
-          <h3 class="text-sm font-semibold text-stone-900">Trends are auto-researched</h3>
-          <p class="text-xs text-stone-600 mt-1 leading-relaxed">
-            During onboarding, Claude (Opus 4.8) searches the web for current festivals, seasonal moments
-            and cultural trends relevant to this tenant's industry and location, then bakes them into the
-            generated system prompt. Re-onboard the tenant every few months to refresh.
-          </p>
-        </div>
-      </div>
-    </section>
+                <!-- THEME -->
+                <section class="card">
+                    <div class="flex items-baseline justify-between mb-5">
+                        <h2 class="section-title">
+                            Theme (header + footer band colours)
+                        </h2>
+                        <span id="palette-preview" class="flex gap-1.5"></span>
+                    </div>
 
-    <button type="submit" id="submit-btn"
-            class="w-full rounded-2xl bg-stone-900 text-white px-6 py-3.5 text-base font-semibold hover:bg-stone-800 disabled:opacity-60 transition shadow-sm">
-      Onboard tenant
-    </button>
-  </form>
+                    <label class="flex items-start gap-2.5 mb-5 cursor-pointer select-none">
+                        <input id="auto-theme" name="auto_theme" type="checkbox" checked
+                               class="mt-0.5 h-4 w-4 rounded border-stone-300 text-stone-900 focus:ring-stone-900">
+                        <span class="text-sm">
+                            <span class="font-medium text-stone-800">Auto-match band colours to each poster</span>
+                            <span class="block text-xs text-stone-500 mt-0.5">
+                                Recommended. The compositor samples each generated image's edges
+                                and tints the bands to match — no awkward maroon strip on a green
+                                poster. Uncheck to lock specific brand colours below.
+                            </span>
+                        </span>
+                    </label>
 
-  <section id="result" class="hidden mt-8 card"></section>
+                    <div id="theme-pickers" class="grid grid-cols-3 gap-5 opacity-50 pointer-events-none">
+                        <div>
+                            <label class="label">Header / footer BG</label>
+                            <div class="flex items-center gap-2 mt-1.5">
+                                <input
+                                    name="theme_bg"
+                                    type="color"
+                                    value="#5e1622"
+                                    class="h-10 w-14 rounded-md border border-stone-300 cursor-pointer"
+                                />
+                                <input
+                                    name="theme_bg_hex"
+                                    class="input mono text-sm flex-1"
+                                    value="#5e1622"
+                                    placeholder="#5e1622"
+                                />
+                            </div>
+                        </div>
+                        <div>
+                            <label class="label">Accent line</label>
+                            <div class="flex items-center gap-2 mt-1.5">
+                                <input
+                                    name="theme_accent"
+                                    type="color"
+                                    value="#c8a24a"
+                                    class="h-10 w-14 rounded-md border border-stone-300 cursor-pointer"
+                                />
+                                <input
+                                    name="theme_accent_hex"
+                                    class="input mono text-sm flex-1"
+                                    value="#c8a24a"
+                                    placeholder="#c8a24a"
+                                />
+                            </div>
+                        </div>
+                        <div>
+                            <label class="label">Text on bands</label>
+                            <div class="flex items-center gap-2 mt-1.5">
+                                <input
+                                    name="theme_text"
+                                    type="color"
+                                    value="#f6efe1"
+                                    class="h-10 w-14 rounded-md border border-stone-300 cursor-pointer"
+                                />
+                                <input
+                                    name="theme_text_hex"
+                                    class="input mono text-sm flex-1"
+                                    value="#f6efe1"
+                                    placeholder="#f6efe1"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </section>
 
-  <footer class="mt-12 text-center text-xs text-stone-400">
-    Claude Opus 4.8 builds the system prompt &middot; Sonnet 4.6 runtime &middot; Gemini 3 Flash Image renders &middot; Supabase persists
-  </footer>
-</main>
+                <!-- LOGO + SAMPLES -->
+                <section class="card">
+                    <h2 class="section-title mb-5">Logo, samples, context</h2>
 
-<script>
-const $ = (s, el=document) => el.querySelector(s);
-const form = $("#onboard-form");
-const result = $("#result");
-const submitBtn = $("#submit-btn");
+                    <div class="space-y-5">
+                        <div>
+                            <label class="label"
+                                >Logo
+                                <span class="text-xs text-stone-400 font-normal"
+                                    >— required, transparent PNG preferred</span
+                                ></label
+                            >
+                            <label id="logo-drop" class="dropzone mt-1.5">
+                                <input
+                                    id="logo-input"
+                                    name="logo"
+                                    type="file"
+                                    accept="image/png,image/jpeg,image/webp"
+                                    required
+                                    class="hidden"
+                                />
+                                <div
+                                    id="logo-empty"
+                                    class="text-sm text-stone-500"
+                                >
+                                    <strong class="text-stone-700"
+                                        >Drop logo here</strong
+                                    >
+                                    or click to choose
+                                </div>
+                                <img
+                                    id="logo-preview"
+                                    class="hidden max-h-28 rounded-md"
+                                    alt="logo preview"
+                                />
+                            </label>
+                        </div>
 
-// ---- swatches preview --------------------------------------------------
-const palette = $("#palette-preview");
-function renderPalette() {
-  palette.innerHTML = "";
-  for (const k of ["theme_bg","theme_accent","theme_text"]) {
-    const c = form[k].value;
-    const chip = document.createElement("span");
-    chip.className = "swatch";
-    chip.innerHTML = `<span class="swatch-chip" style="background:${c}"></span><span class="mono">${c}</span>`;
-    palette.appendChild(chip);
-  }
-}
-renderPalette();
-// keep color + hex inputs in sync (both directions)
-for (const k of ["bg","accent","text"]) {
-  const c = form[`theme_${k}`], h = form[`theme_${k}_hex`];
-  c.addEventListener("input", () => { h.value = c.value; renderPalette(); });
-  h.addEventListener("input", () => {
-    if (/^#[0-9a-fA-F]{6}$/.test(h.value)) { c.value = h.value; renderPalette(); }
-  });
-}
+                        <div>
+                            <label class="label"
+                                >Sample posters the customer likes
+                                <span class="text-xs text-stone-400 font-normal"
+                                    >— optional, multi-select</span
+                                ></label
+                            >
+                            <label id="samples-drop" class="dropzone mt-1.5">
+                                <input
+                                    id="samples-input"
+                                    name="samples"
+                                    type="file"
+                                    accept="image/*"
+                                    multiple
+                                    class="hidden"
+                                />
+                                <div
+                                    id="samples-empty"
+                                    class="text-sm text-stone-500"
+                                >
+                                    <strong class="text-stone-700"
+                                        >Drop sample posters here</strong
+                                    >
+                                    or click to choose multiple
+                                </div>
+                                <div
+                                    id="samples-preview"
+                                    class="hidden grid grid-cols-4 gap-2"
+                                ></div>
+                            </label>
+                            <p class="hint">
+                                Claude looks at these via vision for style cues
+                                — composition, density, palette discipline.
+                            </p>
+                        </div>
 
-// ---- drag-drop file inputs --------------------------------------------
-function wireDropzone(zoneSel, inputSel, onChange) {
-  const zone = $(zoneSel), input = $(inputSel);
-  ["dragenter","dragover"].forEach(e => zone.addEventListener(e, ev => { ev.preventDefault(); zone.classList.add("dragover"); }));
-  ["dragleave","drop"].forEach(e => zone.addEventListener(e, ev => { ev.preventDefault(); zone.classList.remove("dragover"); }));
-  zone.addEventListener("drop", ev => { input.files = ev.dataTransfer.files; input.dispatchEvent(new Event("change")); });
-  input.addEventListener("change", onChange);
-}
+                        <div>
+                            <label class="label"
+                                >Inspiration / ideas
+                                <span class="text-xs text-stone-400 font-normal"
+                                    >— optional</span
+                                ></label
+                            >
+                            <textarea
+                                name="inspiration_ideas"
+                                rows="5"
+                                class="input"
+                                placeholder="What kind of posters does this customer want? Style notes, audience moodboard, brand voice cues, things to avoid…"
+                            ></textarea>
+                        </div>
 
-wireDropzone("#logo-drop", "#logo-input", () => {
-  const f = form.logo.files[0];
-  if (!f) return;
-  const img = $("#logo-preview"), empty = $("#logo-empty");
-  img.src = URL.createObjectURL(f);
-  img.classList.remove("hidden");
-  empty.classList.add("hidden");
-});
+                        <!--<div
+                            class="rounded-xl bg-stone-50 border border-stone-200 p-4"
+                        >
+                            <h3 class="text-sm font-semibold text-stone-900">
+                                Trends are auto-researched
+                            </h3>
+                            <p
+                                class="text-xs text-stone-600 mt-1 leading-relaxed"
+                            >
+                                During onboarding, Claude (Opus 4.8) searches
+                                the web for current festivals, seasonal moments
+                                and cultural trends relevant to this tenant's
+                                industry and location, then bakes them into the
+                                generated system prompt. Re-onboard the tenant
+                                every few months to refresh.
+                            </p>
+                        </div>-->
+                    </div>
+                </section>
 
-wireDropzone("#samples-drop", "#samples-input", () => {
-  const files = form.samples.files;
-  const wrap = $("#samples-preview"), empty = $("#samples-empty");
-  wrap.innerHTML = "";
-  if (!files.length) { wrap.classList.add("hidden"); empty.classList.remove("hidden"); return; }
-  for (const f of files) {
-    const im = document.createElement("img");
-    im.src = URL.createObjectURL(f);
-    im.className = "h-24 w-full object-cover rounded-md border border-stone-200";
-    wrap.appendChild(im);
-  }
-  wrap.classList.remove("hidden");
-  empty.classList.add("hidden");
-});
+                <button
+                    type="submit"
+                    id="submit-btn"
+                    class="w-full rounded-2xl bg-stone-900 text-white px-6 py-3.5 text-base font-semibold hover:bg-stone-800 disabled:opacity-60 transition shadow-sm"
+                >
+                    Onboard tenant
+                </button>
+            </form>
 
-// ---- submit ------------------------------------------------------------
-form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  submitBtn.disabled = true;
-  submitBtn.textContent = "Building system prompt with Claude…";
-  result.classList.add("hidden");
+            <section id="result" class="hidden mt-8 card"></section>
 
-  const fd = new FormData();
-  fd.append("phone", form.phone.value);
-  fd.append("plan_quota", form.plan_quota.value);
-  fd.append("notes", form.biz_notes.value);
-  fd.append("inspiration_ideas", form.inspiration_ideas.value);
+            <footer class="mt-12 text-center text-xs text-stone-400">
+                Claude Opus 4.8 builds the system prompt &middot; Sonnet 4.6
+                runtime &middot; Gemini 3 Flash Image renders &middot; Supabase
+                persists
+            </footer>
+        </main>
 
-  fd.append("business", JSON.stringify({
-    name: form.biz_name.value,
-    type: form.biz_type.value,
-    location: form.biz_location.value || null,
-    tagline: form.biz_tagline.value || null,
-    language: form.biz_language.value,
-    audience: form.biz_audience.value || null,
-    tone: form.biz_tone.value || null,
-    notes: form.biz_notes.value || null,
-  }));
+        <script>
+            const $ = (s, el = document) => el.querySelector(s);
+            const form = $("#onboard-form");
+            const result = $("#result");
+            const submitBtn = $("#submit-btn");
 
-  fd.append("brand", JSON.stringify({
-    dept_name: form.brand_dept.value || null,
-    social_handle: form.brand_handle.value || null,
-    footer_phone: form.brand_phone.value || null,
-    footer_email: form.brand_email.value || null,
-    footer_website: form.brand_website.value || null,
-  }));
+            // Pre-fill phone when navigating from the Pending inbox.
+            const urlParams = new URLSearchParams(location.search);
+            const urlPhone = urlParams.get("phone") || urlParams.get("chat_id");
+            if (urlPhone) {
+                form.phone.value = urlPhone;
+                form.phone.focus();
+            }
 
-  fd.append("theme", JSON.stringify({
-    header_bg: form.theme_bg.value,
-    header_accent: form.theme_accent.value,
-    header_text: form.theme_text.value,
-    footer_bg: form.theme_bg.value,
-    footer_top_line: form.theme_accent.value,
-    footer_text: form.theme_text.value,
-    language: form.biz_language.value,
-  }));
+            // ---- auto-theme toggle -------------------------------------------------
+            const autoTheme = $("#auto-theme");
+            const themePickers = $("#theme-pickers");
+            function syncThemeUI() {
+                if (autoTheme.checked) {
+                    themePickers.classList.add("opacity-50", "pointer-events-none");
+                    palette.innerHTML = '<span class="text-xs text-stone-400">auto from poster</span>';
+                } else {
+                    themePickers.classList.remove("opacity-50", "pointer-events-none");
+                    renderPalette();
+                }
+            }
+            autoTheme.addEventListener("change", syncThemeUI);
 
-  fd.append("logo", form.logo.files[0]);
-  for (const f of form.samples.files) fd.append("samples", f);
+            // ---- swatches preview --------------------------------------------------
+            const palette = $("#palette-preview");
+            function renderPalette() {
+                if (autoTheme.checked) return;
+                palette.innerHTML = "";
+                for (const k of ["theme_bg", "theme_accent", "theme_text"]) {
+                    const c = form[k].value;
+                    const chip = document.createElement("span");
+                    chip.className = "swatch";
+                    chip.innerHTML = `<span class="swatch-chip" style="background:${c}"></span><span class="mono">${c}</span>`;
+                    palette.appendChild(chip);
+                }
+            }
+            syncThemeUI();
+            // keep color + hex inputs in sync (both directions)
+            for (const k of ["bg", "accent", "text"]) {
+                const c = form[`theme_${k}`],
+                    h = form[`theme_${k}_hex`];
+                c.addEventListener("input", () => {
+                    h.value = c.value;
+                    renderPalette();
+                });
+                h.addEventListener("input", () => {
+                    if (/^#[0-9a-fA-F]{6}$/.test(h.value)) {
+                        c.value = h.value;
+                        renderPalette();
+                    }
+                });
+            }
 
-  try {
-    const resp = await fetch("/api/onboard", { method: "POST", body: fd });
-    const data = await resp.json();
-    if (!resp.ok) {
-      result.innerHTML = `
+            // ---- drag-drop file inputs --------------------------------------------
+            function wireDropzone(zoneSel, inputSel, onChange) {
+                const zone = $(zoneSel),
+                    input = $(inputSel);
+                ["dragenter", "dragover"].forEach((e) =>
+                    zone.addEventListener(e, (ev) => {
+                        ev.preventDefault();
+                        zone.classList.add("dragover");
+                    }),
+                );
+                ["dragleave", "drop"].forEach((e) =>
+                    zone.addEventListener(e, (ev) => {
+                        ev.preventDefault();
+                        zone.classList.remove("dragover");
+                    }),
+                );
+                zone.addEventListener("drop", (ev) => {
+                    input.files = ev.dataTransfer.files;
+                    input.dispatchEvent(new Event("change"));
+                });
+                input.addEventListener("change", onChange);
+            }
+
+            wireDropzone("#logo-drop", "#logo-input", () => {
+                const f = form.logo.files[0];
+                if (!f) return;
+                const img = $("#logo-preview"),
+                    empty = $("#logo-empty");
+                img.src = URL.createObjectURL(f);
+                img.classList.remove("hidden");
+                empty.classList.add("hidden");
+            });
+
+            wireDropzone("#samples-drop", "#samples-input", () => {
+                const files = form.samples.files;
+                const wrap = $("#samples-preview"),
+                    empty = $("#samples-empty");
+                wrap.innerHTML = "";
+                if (!files.length) {
+                    wrap.classList.add("hidden");
+                    empty.classList.remove("hidden");
+                    return;
+                }
+                for (const f of files) {
+                    const im = document.createElement("img");
+                    im.src = URL.createObjectURL(f);
+                    im.className =
+                        "h-24 w-full object-cover rounded-md border border-stone-200";
+                    wrap.appendChild(im);
+                }
+                wrap.classList.remove("hidden");
+                empty.classList.add("hidden");
+            });
+
+            // ---- submit ------------------------------------------------------------
+            form.addEventListener("submit", async (e) => {
+                e.preventDefault();
+                submitBtn.disabled = true;
+                submitBtn.textContent = "Building system prompt with Claude…";
+                result.classList.add("hidden");
+
+                const fd = new FormData();
+                fd.append("phone", form.phone.value);
+                fd.append("plan_quota", form.plan_quota.value);
+                fd.append("notes", form.biz_notes.value);
+                fd.append("inspiration_ideas", form.inspiration_ideas.value);
+
+                fd.append(
+                    "business",
+                    JSON.stringify({
+                        name: form.biz_name.value,
+                        type: form.biz_type.value,
+                        location: form.biz_location.value || null,
+                        language: form.biz_language.value,
+                        audience: form.biz_audience.value || null,
+                        tone: form.biz_tone.value || null,
+                        notes: form.biz_notes.value || null,
+                    }),
+                );
+
+                fd.append(
+                    "brand",
+                    JSON.stringify({
+                        dept_name: form.brand_dept.value || null,
+                        social_handle: form.brand_handle.value || null,
+                        footer_phone: form.brand_phone.value || null,
+                        footer_email: form.brand_email.value || null,
+                        footer_website: form.brand_website.value || null,
+                    }),
+                );
+
+                const themePayload = { language: form.biz_language.value };
+                if (!autoTheme.checked) {
+                    themePayload.header_bg = form.theme_bg.value;
+                    themePayload.header_accent = form.theme_accent.value;
+                    themePayload.header_text = form.theme_text.value;
+                    themePayload.footer_bg = form.theme_bg.value;
+                    themePayload.footer_top_line = form.theme_accent.value;
+                    themePayload.footer_text = form.theme_text.value;
+                }
+                fd.append("theme", JSON.stringify(themePayload));
+
+                fd.append("logo", form.logo.files[0]);
+                for (const f of form.samples.files) fd.append("samples", f);
+
+                try {
+                    const resp = await fetch("/api/onboard", {
+                        method: "POST",
+                        body: fd,
+                    });
+                    const data = await resp.json();
+                    if (!resp.ok) {
+                        result.innerHTML = `
         <h2 class="text-lg font-semibold text-red-700">Onboarding failed</h2>
         <pre class="mt-3 bg-red-50 rounded-lg p-3 text-xs whitespace-pre-wrap mono">${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
-    } else {
-      result.innerHTML = `
+                    } else {
+                        result.innerHTML = `
         <div class="flex items-baseline justify-between mb-3">
           <h2 class="text-lg font-semibold text-emerald-700">✓ Tenant onboarded</h2>
           <span class="text-xs text-stone-400 mono">${data.tenant_id}</span>
@@ -367,20 +654,29 @@ form.addEventListener("submit", async (e) => {
         <div class="mt-5 flex gap-2 text-sm">
           <button onclick="form.reset(); location.hash=''; result.classList.add('hidden')" class="px-4 py-2 rounded-lg bg-stone-900 text-white hover:bg-stone-800">Onboard another</button>
         </div>`;
-    }
-  } catch (err) {
-    result.innerHTML = `<h2 class="text-lg font-semibold text-red-700">Network error</h2><p class="text-sm">${escapeHtml(err.message)}</p>`;
-  }
-  result.classList.remove("hidden");
-  result.scrollIntoView({ behavior: "smooth", block: "start" });
-  submitBtn.disabled = false;
-  submitBtn.textContent = "Onboard tenant";
-});
+                    }
+                } catch (err) {
+                    result.innerHTML = `<h2 class="text-lg font-semibold text-red-700">Network error</h2><p class="text-sm">${escapeHtml(err.message)}</p>`;
+                }
+                result.classList.remove("hidden");
+                result.scrollIntoView({ behavior: "smooth", block: "start" });
+                submitBtn.disabled = false;
+                submitBtn.textContent = "Onboard tenant";
+            });
 
-function escapeHtml(s) {
-  return (s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
-}
-</script>
-
-</body>
+            function escapeHtml(s) {
+                return (s ?? "").replace(
+                    /[&<>"']/g,
+                    (c) =>
+                        ({
+                            "&": "&amp;",
+                            "<": "&lt;",
+                            ">": "&gt;",
+                            '"': "&quot;",
+                            "'": "&#39;",
+                        })[c],
+                );
+            }
+        </script>
+    </body>
 </html>

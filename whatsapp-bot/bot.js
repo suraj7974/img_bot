@@ -5,8 +5,10 @@
  * Flow (DMs only):
  *   1. A paying tenant DMs the bot with a message starting "new poster"
  *      (case-insensitive). Group messages are ignored.
- *   2. The bot resolves the sender's phone to E.164 and spawns
- *      `python -m imgbot generate --phone <e164>` against the repo root.
+ *   2. The bot reads `message.from` (the WhatsApp JID — `@c.us` or `@lid`)
+ *      and spawns `python -m imgbot generate --chat-id <jid>`. Python's
+ *      store.resolve_tenant maps that to the tenant (by chat_id if known,
+ *      else by phone-digit fallback), and binds chat_id on first contact.
  *   3. The Python CLI produces one branded poster, prints a legacy
  *      `✓ Final poster -> <abs path>` line, then a single JSON line with
  *      `{image_path, idea_title, quota_remaining}`.
@@ -29,6 +31,7 @@ const { Client, LocalAuth, MessageMedia } = require("whatsapp-web.js");
 // ---------------------------------------------------------------------------
 const REPO_ROOT = path.resolve(__dirname, "..");
 const PYTHON = process.env.PYTHON_BIN || path.join(REPO_ROOT, ".venv/bin/python");
+const DASHBOARD_URL = process.env.IMGBOT_DASHBOARD_URL || "http://127.0.0.1:8000";
 const TRIGGER = "new poster";
 const MAX_TRACKED = 500;
 
@@ -40,37 +43,15 @@ function rememberId(set, id) {
   if (set.size > MAX_TRACKED) set.delete(set.values().next().value);
 }
 
-async function senderPhone(message) {
-  // WhatsApp uses three flavours of sender ID:
-  //   "+91…@c.us"   — legacy DM, the digits ARE the phone number
-  //   "1234…@lid"   — Linked Identifier (privacy layer), the digits are NOT a phone
-  //   "+91…@g.us"   — group ID (only seen on message.from in groups)
-  //
-  // For @lid we cannot derive the phone from the ID — we have to ask
-  // WhatsApp via getContact(), which resolves the underlying @c.us identity.
-  try {
-    const contact = await message.getContact();
-    if (contact) {
-      if (contact.number) {
-        const digits = String(contact.number).replace(/\D+/g, "");
-        if (digits) return `+${digits}`;
-      }
-      if (contact.id && contact.id.server === "c.us" && contact.id.user) {
-        const digits = String(contact.id.user).replace(/\D+/g, "");
-        if (digits) return `+${digits}`;
-      }
-    }
-  } catch (e) {
-    console.warn("getContact failed:", e.message);
-  }
-
-  // Legacy fallback for old @c.us chats only — never trust @lid digits as a phone.
-  const idRaw = message.author || message.from || "";
-  if (idRaw.endsWith("@c.us")) {
-    const digits = idRaw.split("@")[0].replace(/\D+/g, "");
-    if (digits) return `+${digits}`;
-  }
-  return null;
+function senderChatId(message) {
+  // `message.from` is WhatsApp's canonical chat ID — either `<digits>@c.us`
+  // (phone-based) or `<digits>@lid` (Linked Identifier, privacy layer).
+  // We treat it as opaque and pass it straight through to Python; the tenant
+  // row is keyed on whatever the user pasted into the onboarding form.
+  // In groups, `message.from` is the GROUP id and `message.author` is the
+  // sender — prefer `author` if present so a future group-DM toggle works.
+  const id = (message.author || message.from || "").trim().toLowerCase();
+  return id || null;
 }
 
 function isNonDmChat(message, chat) {
@@ -121,7 +102,14 @@ client.on("ready", () => {
 // ---------------------------------------------------------------------------
 client.on("message", (m) => handleMessage(m));
 client.on("message_create", (m) => {
-  if (!m.fromMe) handleMessage(m);
+  // Normally we skip messages WE sent (loop prevention). But during local
+  // testing the operator often links the bot to their own WhatsApp account
+  // and DMs themself — in that case `fromMe = true` for every test. Allow
+  // self-messages ONLY when the body looks like our trigger so the bot can
+  // still answer itself for testing without risk of self-talk loops.
+  if (!m.fromMe) return handleMessage(m);
+  const body = (m.body || "").trim().toLowerCase();
+  if (body.startsWith(TRIGGER)) handleMessage(m);
 });
 
 async function handleMessage(message) {
@@ -144,30 +132,43 @@ async function handleMessage(message) {
     const body = (message.body || "").trim();
     if (!body.toLowerCase().startsWith(TRIGGER)) return;
 
-    const phone = await senderPhone(message);
-    if (!phone) {
+    const chatId = senderChatId(message);
+    if (!chatId) {
       console.warn(
-        `could not resolve phone (from=${message.from}, author=${message.author || "-"})`
+        `could not read chat id (from=${message.from}, author=${message.author || "-"})`
       );
-      await message.reply(
-        "⚠️ Couldn't read your phone number from this chat. " +
-        "If your account uses WhatsApp's privacy lock, message your admin to onboard you manually."
-      );
+      await message.reply("⚠️ Couldn't read your WhatsApp chat ID from this message.");
       return;
     }
 
+    // In a 1-on-1 DM, `message.from` IS the other party's JID — `@c.us`
+    // when their account is phone-based, and its digits are the real phone.
+    // The LID (when present) only shows up as `message.author` and is the
+    // sender's privacy-layer identifier. We use `from` as the phone source.
+    let resolvedPhone = null;
+    const fromDigits = (message.from || "").split("@")[0].replace(/\D+/g, "");
+    if ((message.from || "").endsWith("@c.us") && fromDigits.length >= 8) {
+      resolvedPhone = "+" + fromDigits;
+    }
+
     console.log(
-      `trigger → ${phone}  (from=${message.from}, author=${message.author || "-"})`
+      `trigger → ${chatId}  (from=${message.from}, author=${
+        message.author || "-"
+      }, phone=${resolvedPhone || "-"})`
     );
     await message.reply("⏳ Generating your poster…");
     chat.sendStateTyping().catch(() => {});
 
     let result;
     try {
-      result = await runPipeline(phone);
+      result = await runPipeline(chatId, resolvedPhone);
     } catch (err) {
       console.error("pipeline failed:", err.message);
-      await message.reply(replyForError(err));
+      if (err.errorKind === "not_onboarded") {
+        // Drop them into the admin's pending inbox so they can be click-onboarded.
+        notifyPending(chatId, body);
+      }
+      await message.reply(replyForError(err, chatId));
       return;
     }
 
@@ -189,9 +190,34 @@ async function handleMessage(message) {
   }
 }
 
-function replyForError(err) {
+async function notifyPending(chatId, lastMessage) {
+  // Fire-and-forget POST to the dashboard so the admin sees this chat ID
+  // in the /pending inbox. Never block the WhatsApp reply on this.
+  try {
+    const resp = await fetch(`${DASHBOARD_URL}/api/pending`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, last_message: lastMessage || "" }),
+    });
+    if (!resp.ok) {
+      const txt = await resp.text();
+      console.warn(`notifyPending → ${resp.status}: ${truncate(txt, 200)}`);
+    }
+  } catch (e) {
+    console.warn("notifyPending failed:", e.message);
+  }
+}
+
+
+function replyForError(err, chatId) {
   if (err.errorKind === "not_onboarded") {
-    return "⚠️ You're not onboarded yet. Please contact your admin to set up your account.";
+    // Echo the chat ID back so the customer can forward it to their admin in
+    // one tap — no need for the admin to dig through the bot terminal logs.
+    return (
+      "👋 You're not set up yet.\n\n" +
+      "Send this WhatsApp ID to your admin so they can activate your account:\n\n" +
+      "```\n" + chatId + "\n```"
+    );
   }
   if (err.errorKind === "quota_exceeded") {
     return "⚠️ You've used up this period's quota. Reach out to your admin to top up.";
@@ -202,13 +228,11 @@ function replyForError(err) {
 // ---------------------------------------------------------------------------
 // Run the Python CLI
 // ---------------------------------------------------------------------------
-function runPipeline(phone) {
+function runPipeline(chatId, phoneHint) {
   return new Promise((resolve, reject) => {
-    const child = spawn(
-      PYTHON,
-      ["-m", "imgbot", "generate", "--phone", phone],
-      { cwd: REPO_ROOT }
-    );
+    const args = ["-m", "imgbot", "generate", "--chat-id", chatId];
+    if (phoneHint) args.push("--phone", phoneHint);
+    const child = spawn(PYTHON, args, { cwd: REPO_ROOT });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (d) => (stdout += d.toString()));

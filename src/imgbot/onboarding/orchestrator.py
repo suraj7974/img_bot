@@ -67,16 +67,12 @@ def onboard_from_input(
     ]
 
     # ---- build per-tenant system prompt ----------------------------------- #
-    # We deliberately strip `business.tagline` and `brand.*` strings (header
-    # text, social handle, footer contact lines) before sending to Claude —
-    # those are composited-only by the brand pipeline and should NEVER appear
-    # inside the AI-rendered image. Withholding them from Claude entirely is
-    # the strongest guardrail against leakage; the meta-prompt's "do not
-    # render" rule alone wasn't always being followed.
-    business_for_claude = meta.business.model_dump()
-    business_for_claude.pop("tagline", None)
+    # The `brand.*` strings (header text, social handle, contact lines) are
+    # deliberately omitted — they're composited outside the AI image and
+    # should never leak into Claude's input. Withholding them is the strongest
+    # guardrail against the model "helpfully" rendering them inside the poster.
     meta_for_claude = {
-        "business": business_for_claude,
+        "business": meta.business.model_dump(),
         "theme": meta.theme.model_dump(),
         "plan_quota": meta.plan_quota,
         "notes": meta.notes,
@@ -94,6 +90,14 @@ def onboard_from_input(
         logo_path=logo_path,
         sample_paths=sample_paths,
     )
+
+    # Auto-clear from the pending inbox if the bot had this customer queued
+    # under their resolved JID. Best-effort, never block onboarding.
+    if tenant.chat_id:
+        try:
+            store.delete_pending(tenant.chat_id)
+        except Exception:
+            pass
 
     return OnboardResult(
         tenant=tenant,
