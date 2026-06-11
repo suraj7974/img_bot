@@ -1,0 +1,35 @@
+# imgbot — one service (dashboard + bot) in a single container.
+#
+# Persistence:
+#   - ./data          → generated posters & tenant assets (also pushed to Supabase)
+#   - wa-auth volume  → WhatsApp linked-device session; survives image rebuilds
+#                       so you don't have to rescan the QR every deploy
+#   - wa-cache volume → puppeteer cache; nice to have, fine to lose
+#
+# Env:
+#   .env must contain GEMINI_API_KEY, ANTHROPIC_API_KEY, SUPABASE_URL,
+#   SUPABASE_SERVICE_KEY (same .env you used outside Docker).
+
+services:
+  imgbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: imgbot
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - wa-auth:/app/whatsapp-bot/.wwebjs_auth
+      - wa-cache:/app/whatsapp-bot/.wwebjs_cache
+    # `init: true` would normally add tini, but our Dockerfile sets tini as the
+    # ENTRYPOINT explicitly so we don't need docker to layer another one in.
+    stdin_open: true
+    tty: true
+
+volumes:
+  wa-auth:
+  wa-cache:

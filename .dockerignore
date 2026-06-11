@@ -1,0 +1,30 @@
+# Keep the build context tiny — don't ship dev-only or secrets into the image.
+
+.git
+.gitignore
+.venv/
+.env
+.env.example
+
+# Python build artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+
+# Bot runtime state (lives in named volumes inside the container)
+whatsapp-bot/node_modules/
+whatsapp-bot/.wwebjs_auth/
+whatsapp-bot/.wwebjs_cache/
+
+# Generated tenant assets — mounted from the host
+data/
+output/
+
+# Local docs & editor noise
+*.md
+.DS_Store
+.vscode/
+.idea/

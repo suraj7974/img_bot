@@ -30,7 +30,12 @@ const { Client, LocalAuth, MessageMedia } = require("whatsapp-web.js");
 // Config
 // ---------------------------------------------------------------------------
 const REPO_ROOT = path.resolve(__dirname, "..");
-const PYTHON = process.env.PYTHON_BIN || path.join(REPO_ROOT, ".venv/bin/python");
+// Use the explicit env override, then the local virtualenv (dev on a Mac),
+// then the system `python3` (Docker / VM with imgbot installed system-wide).
+const VENV_PYTHON = path.join(REPO_ROOT, ".venv/bin/python");
+const PYTHON =
+  process.env.PYTHON_BIN ||
+  (fs.existsSync(VENV_PYTHON) ? VENV_PYTHON : "python3");
 const DASHBOARD_URL = process.env.IMGBOT_DASHBOARD_URL || "http://127.0.0.1:8000";
 const TRIGGER = "new poster";
 const MAX_TRACKED = 500;
@@ -117,6 +122,9 @@ const client = new Client({
   authStrategy: new LocalAuth({ dataPath: path.join(__dirname, ".wwebjs_auth") }),
   puppeteer: {
     headless: true,
+    // In Docker we ship a system Chromium and point puppeteer at it via env;
+    // on macOS dev we let puppeteer use its bundled binary.
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
