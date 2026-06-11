@@ -189,19 +189,34 @@ async function handleMessage(message) {
     console.log(
       `trigger → ${phone}  (from=${message.from}, author=${message.author || "-"})`
     );
-    await message.reply("⏳ Generating your poster…");
+    try {
+      await message.reply("⏳ Generating your poster…");
+      console.log("  ↳ ack sent");
+    } catch (e) {
+      console.error("  ↳ ack reply failed:", e.message);
+    }
     chat.sendStateTyping().catch(() => {});
 
     let result;
+    const t0 = Date.now();
     try {
+      console.log("  ↳ spawning pipeline");
       result = await runPipeline(phone);
+      console.log(`  ↳ pipeline OK in ${((Date.now() - t0) / 1000).toFixed(1)}s → ${result.image_path}`);
     } catch (err) {
-      console.error("pipeline failed:", err.message);
-      await message.reply(replyForError(err, phone));
+      console.error(`  ↳ pipeline FAILED in ${((Date.now() - t0) / 1000).toFixed(1)}s:`, err.message);
+      try {
+        await message.reply(replyForError(err, phone));
+      } catch (e2) {
+        console.error("  ↳ error-reply send failed:", e2.message);
+      }
       return;
     }
 
     try {
+      if (!fs.existsSync(result.image_path)) {
+        throw new Error(`poster file not found on disk: ${result.image_path}`);
+      }
       const media = MessageMedia.fromFilePath(result.image_path);
       const caption =
         `✅ ${result.idea_title}` +
@@ -209,10 +224,15 @@ async function handleMessage(message) {
           ? `\n(${result.quota_remaining} posters left this period)`
           : "");
       await message.reply(media, undefined, { caption });
+      console.log("  ↳ media sent");
       cleanupRunFiles(result);
     } catch (err) {
-      console.error("send error:", err.message);
-      await message.reply(`❌ Failed to send poster: ${err.message}`);
+      console.error("  ↳ send error:", err.message);
+      try {
+        await message.reply(`❌ Failed to send poster: ${err.message}`);
+      } catch (e2) {
+        console.error("  ↳ failure-reply send failed:", e2.message);
+      }
     }
   } catch (err) {
     console.error("handler error:", err.message);
