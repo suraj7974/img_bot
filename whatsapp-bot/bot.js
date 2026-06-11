@@ -269,11 +269,27 @@ function replyForError(err, phone) {
 function runPipeline(phone) {
   return new Promise((resolve, reject) => {
     const args = ["-m", "imgbot", "generate", "--phone", phone];
-    const child = spawn(PYTHON, args, { cwd: REPO_ROOT });
+    // PYTHONUNBUFFERED=1 forces line-buffered stdout/stderr in the child,
+    // so the `→ idea` / `✓ Final poster` lines appear live in `docker logs`
+    // instead of arriving in one chunk when Python exits.
+    const env = { ...process.env, PYTHONUNBUFFERED: "1" };
+    const child = spawn(PYTHON, args, { cwd: REPO_ROOT, env });
     let stdout = "";
     let stderr = "";
-    child.stdout.on("data", (d) => (stdout += d.toString()));
-    child.stderr.on("data", (d) => (stderr += d.toString()));
+    child.stdout.on("data", (d) => {
+      const s = d.toString();
+      stdout += s;
+      s.split(/\r?\n/).forEach((line) => {
+        if (line.trim()) console.log(`    [py] ${line}`);
+      });
+    });
+    child.stderr.on("data", (d) => {
+      const s = d.toString();
+      stderr += s;
+      s.split(/\r?\n/).forEach((line) => {
+        if (line.trim()) console.error(`    [py!] ${line}`);
+      });
+    });
     child.on("error", reject);
     child.on("close", (code) => {
       // The CLI surfaces structured errors on stderr as a JSON line + non-zero
