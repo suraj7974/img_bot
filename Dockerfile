@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2 \
         libraqm0 \
         fonts-noto fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji \
+        fonts-liberation \
         fontconfig \
         supervisor \
         tini \
@@ -34,7 +35,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get install -y --no-install-recommends nodejs \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
-    && fc-cache -f
+    && fc-cache -f \
+    # Fail the build now if either font path went missing — Pillow can't
+    # render header/footer text without these and the failure mode is
+    # silent (poster generation crashes at runtime).
+    && test -f /usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf \
+    && test -f /usr/share/fonts/truetype/noto/NotoSansDevanagari-Bold.ttf
 
 WORKDIR /app
 
