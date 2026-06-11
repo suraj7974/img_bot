@@ -57,8 +57,8 @@ def _basename(idea_title: str) -> str:
     return f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{slug}"
 
 
-def run_for_chat_id(
-    chat_id: str,
+def run_for_phone(
+    phone: str,
     *,
     store: Optional[TenantStore] = None,
     assets: Optional[AssetStore] = None,
@@ -66,23 +66,20 @@ def run_for_chat_id(
     gemini: Optional[GeminiImageClient] = None,
     history_n: int = 12,
 ) -> GenerationResult:
-    """End-to-end: resolve tenant → generate → brand → save → bump quota."""
+    """End-to-end: resolve tenant by phone → generate → brand → save → bump quota.
+
+    The bot extracts the sender's phone from `message.from` (or via the
+    Contact API for LID-protected accounts) and passes it here. Phone IS
+    WhatsApp's canonical identifier for our purposes — no chat_id roundtrip.
+    """
     store = store or TenantStore()
     assets = assets or AssetStore()
     claude = claude or ClaudeClient()
     gemini = gemini or GeminiImageClient()
 
-    tenant: Tenant | None = store.resolve_tenant(chat_id)
+    tenant: Tenant | None = store.get_by_phone(phone)
     if tenant is None:
-        raise TenantNotFound(f"no onboarded tenant for {chat_id}")
-
-    # First-contact chat_id binding — store the @lid form Whatsapp gave us so
-    # future calls hit the fast chat_id index instead of phone-digit fallback.
-    if tenant.chat_id != chat_id.lower():
-        try:
-            tenant = store.bind_chat_id(tenant.id, chat_id)
-        except Exception:
-            pass  # don't block a generation over this
+        raise TenantNotFound(f"no onboarded tenant for {phone}")
 
     if tenant.quota_remaining <= 0:
         raise QuotaExceeded(
@@ -142,5 +139,12 @@ def run_for_chat_id(
     )
 
 
-# Back-compat alias — anything still importing run_for_phone keeps working.
-run_for_phone = run_for_chat_id
+# Back-compat alias for any old callers still importing `run_for_chat_id`.
+# Best-effort phone extraction for the legacy callsite — they'll just stop
+# working for genuine @lid chat IDs since those can't be reverse-mapped to
+# a phone. Real callers should pass a phone directly.
+def run_for_chat_id(chat_id: str, **kwargs) -> GenerationResult:
+    if chat_id.endswith("@c.us"):
+        digits = chat_id.split("@", 1)[0]
+        return run_for_phone(f"+{digits}", **kwargs)
+    raise TenantNotFound(f"can't derive a phone from chat_id {chat_id}")

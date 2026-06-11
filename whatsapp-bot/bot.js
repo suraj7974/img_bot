@@ -43,15 +43,57 @@ function rememberId(set, id) {
   if (set.size > MAX_TRACKED) set.delete(set.values().next().value);
 }
 
-function senderChatId(message) {
-  // `message.from` is WhatsApp's canonical chat ID — either `<digits>@c.us`
-  // (phone-based) or `<digits>@lid` (Linked Identifier, privacy layer).
-  // We treat it as opaque and pass it straight through to Python; the tenant
-  // row is keyed on whatever the user pasted into the onboarding form.
-  // In groups, `message.from` is the GROUP id and `message.author` is the
-  // sender — prefer `author` if present so a future group-DM toggle works.
-  const id = (message.author || message.from || "").trim().toLowerCase();
-  return id || null;
+/**
+ * Resolve the sender's phone number (E.164, "+<digits>") from any message.
+ *
+ * WhatsApp's `message.from` is either:
+ *   - "<phone-digits>@c.us"  → the digits ARE the phone, just prepend "+"
+ *   - "<opaque-lid>@lid"     → digits are NOT a phone; ask the Contact API
+ *
+ * For LID-protected accounts the bot can sometimes see the underlying phone
+ * via `Contact.number` / `Contact.id.user` — depends on the user's privacy
+ * settings. If WhatsApp won't reveal it, we return null and the caller tells
+ * the user to ask the admin to onboard them manually.
+ *
+ * Returns null only if we genuinely can't determine the phone.
+ */
+async function senderPhone(message) {
+  const from = (message.from || "").toLowerCase();
+
+  // Fast path — phone-based account. Digits in `from` ARE the phone.
+  if (from.endsWith("@c.us")) {
+    const digits = from.split("@")[0].replace(/\D+/g, "");
+    if (digits.length >= 8 && digits.length <= 15) return "+" + digits;
+  }
+
+  // LID path — ask the Contact API and reject anything that's just the LID
+  // digits dressed up as a phone.
+  try {
+    const contact = await message.getContact();
+    if (contact) {
+      const lidDigits = from.split("@")[0].replace(/\D+/g, "");
+      const candidates = [
+        contact.number,
+        contact.id && contact.id.user,
+      ];
+      for (const c of candidates) {
+        if (!c) continue;
+        const digits = String(c).replace(/\D+/g, "");
+        if (
+          digits &&
+          digits !== lidDigits &&
+          digits.length >= 8 &&
+          digits.length <= 15
+        ) {
+          return "+" + digits;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("getContact failed:", e.message);
+  }
+
+  return null;
 }
 
 function isNonDmChat(message, chat) {
@@ -132,43 +174,30 @@ async function handleMessage(message) {
     const body = (message.body || "").trim();
     if (!body.toLowerCase().startsWith(TRIGGER)) return;
 
-    const chatId = senderChatId(message);
-    if (!chatId) {
+    const phone = await senderPhone(message);
+    if (!phone) {
       console.warn(
-        `could not read chat id (from=${message.from}, author=${message.author || "-"})`
+        `could not resolve phone (from=${message.from}, author=${message.author || "-"})`
       );
-      await message.reply("⚠️ Couldn't read your WhatsApp chat ID from this message.");
+      await message.reply(
+        "⚠️ Couldn't read your WhatsApp number. If your account has Privacy Lock enabled, " +
+        "please ask your admin to onboard you manually."
+      );
       return;
     }
 
-    // In a 1-on-1 DM, `message.from` IS the other party's JID — `@c.us`
-    // when their account is phone-based, and its digits are the real phone.
-    // The LID (when present) only shows up as `message.author` and is the
-    // sender's privacy-layer identifier. We use `from` as the phone source.
-    let resolvedPhone = null;
-    const fromDigits = (message.from || "").split("@")[0].replace(/\D+/g, "");
-    if ((message.from || "").endsWith("@c.us") && fromDigits.length >= 8) {
-      resolvedPhone = "+" + fromDigits;
-    }
-
     console.log(
-      `trigger → ${chatId}  (from=${message.from}, author=${
-        message.author || "-"
-      }, phone=${resolvedPhone || "-"})`
+      `trigger → ${phone}  (from=${message.from}, author=${message.author || "-"})`
     );
     await message.reply("⏳ Generating your poster…");
     chat.sendStateTyping().catch(() => {});
 
     let result;
     try {
-      result = await runPipeline(chatId, resolvedPhone);
+      result = await runPipeline(phone);
     } catch (err) {
       console.error("pipeline failed:", err.message);
-      if (err.errorKind === "not_onboarded") {
-        // Drop them into the admin's pending inbox so they can be click-onboarded.
-        notifyPending(chatId, body);
-      }
-      await message.reply(replyForError(err, chatId));
+      await message.reply(replyForError(err, phone));
       return;
     }
 
@@ -190,33 +219,14 @@ async function handleMessage(message) {
   }
 }
 
-async function notifyPending(chatId, lastMessage) {
-  // Fire-and-forget POST to the dashboard so the admin sees this chat ID
-  // in the /pending inbox. Never block the WhatsApp reply on this.
-  try {
-    const resp = await fetch(`${DASHBOARD_URL}/api/pending`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, last_message: lastMessage || "" }),
-    });
-    if (!resp.ok) {
-      const txt = await resp.text();
-      console.warn(`notifyPending → ${resp.status}: ${truncate(txt, 200)}`);
-    }
-  } catch (e) {
-    console.warn("notifyPending failed:", e.message);
-  }
-}
-
-
-function replyForError(err, chatId) {
+function replyForError(err, phone) {
   if (err.errorKind === "not_onboarded") {
-    // Echo the chat ID back so the customer can forward it to their admin in
-    // one tap — no need for the admin to dig through the bot terminal logs.
+    // Echo the phone back so the customer can forward it to their admin in
+    // one tap — admin types the same number into the onboarding form.
     return (
       "👋 You're not set up yet.\n\n" +
-      "Send this WhatsApp ID to your admin so they can activate your account:\n\n" +
-      "```\n" + chatId + "\n```"
+      "Send this WhatsApp number to your admin so they can activate your account:\n\n" +
+      "```\n" + phone + "\n```"
     );
   }
   if (err.errorKind === "quota_exceeded") {
@@ -228,10 +238,9 @@ function replyForError(err, chatId) {
 // ---------------------------------------------------------------------------
 // Run the Python CLI
 // ---------------------------------------------------------------------------
-function runPipeline(chatId, phoneHint) {
+function runPipeline(phone) {
   return new Promise((resolve, reject) => {
-    const args = ["-m", "imgbot", "generate", "--chat-id", chatId];
-    if (phoneHint) args.push("--phone", phoneHint);
+    const args = ["-m", "imgbot", "generate", "--phone", phone];
     const child = spawn(PYTHON, args, { cwd: REPO_ROOT });
     let stdout = "";
     let stderr = "";
