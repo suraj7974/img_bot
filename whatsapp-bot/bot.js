@@ -205,6 +205,14 @@ async function handleMessage(message) {
     }
     chat.sendStateTyping().catch(() => {});
 
+    // After a long-running pipeline (Claude + Gemini + Pillow can take 3-5 min
+    // on a busy day) the original `message` reference goes stale — its
+    // internal chat handle gets GC'd by puppeteer and `message.reply(...)`
+    // throws "Cannot read properties of undefined (reading 'getChat')".
+    // Capture the chat ID NOW (cheap, immutable string) so we can send via
+    // `client.sendMessage(chatId, …)` later, which only needs the ID.
+    const chatId = message.from;
+
     let result;
     const t0 = Date.now();
     try {
@@ -214,7 +222,7 @@ async function handleMessage(message) {
     } catch (err) {
       console.error(`  ↳ pipeline FAILED in ${((Date.now() - t0) / 1000).toFixed(1)}s:`, err.message);
       try {
-        await message.reply(replyForError(err, phone));
+        await client.sendMessage(chatId, replyForError(err, phone));
       } catch (e2) {
         console.error("  ↳ error-reply send failed:", e2.message);
       }
@@ -231,13 +239,13 @@ async function handleMessage(message) {
         (typeof result.quota_remaining === "number"
           ? `\n(${result.quota_remaining} posters left this period)`
           : "");
-      await message.reply(media, undefined, { caption });
+      await client.sendMessage(chatId, media, { caption });
       console.log("  ↳ media sent");
       cleanupRunFiles(result);
     } catch (err) {
       console.error("  ↳ send error:", err.message);
       try {
-        await message.reply(`❌ Failed to send poster: ${err.message}`);
+        await client.sendMessage(chatId, `❌ Failed to send poster: ${err.message}`);
       } catch (e2) {
         console.error("  ↳ failure-reply send failed:", e2.message);
       }
